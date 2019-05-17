@@ -5,7 +5,7 @@
     <RootNamespace>state_api_forge_infrastructure</RootNamespace>
   </PropertyGroup>
   <ItemGroup>
-    <PackageReference Include="LCU.Runtime" Version="1.0.19122.9" />
+    <PackageReference Include="LCU.Runtime" Version="1.0.19137.3-prerelease" />
     <PackageReference Include="Microsoft.NET.Sdk.Functions" Version="1.0.27" />
   </ItemGroup>
   <ItemGroup>
