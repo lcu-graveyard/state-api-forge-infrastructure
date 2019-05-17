@@ -9,6 +9,9 @@ namespace LCU.State.API.Forge.Infrastructure.Models
     public class ForgeInfrastructureState
     {
         [DataMember]
+        public virtual string Error { get; set; }
+
+        [DataMember]
         public virtual bool InfrastructureConfigured { get; set; }
 
         [DataMember]

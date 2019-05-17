@@ -24,7 +24,8 @@ namespace LCU.State.API.Forge.Infrastructure
                 await mgr.Ensure();
 
                 return await mgr.WhenAll(
-                    
+                    mgr.HasInfrastructure(),
+                    mgr.HasSourceControl()
                 );
             });
         }
