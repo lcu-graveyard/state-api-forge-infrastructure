@@ -15,22 +15,22 @@ namespace LCU.State.API.Forge.Infrastructure
 {
     [Serializable]
     [DataContract]
-    public class SetSetupStepRequest
+    public class SetSelectedOrgRequest
     {
         [DataMember]
-        public virtual ForgeInfrastructureSetupStepTypes? Step {get; set;}
+        public virtual string Organization {get; set;}
     }
     
-    public static class SetSetupStep
+    public static class SetSelectedOrg
     {
-        [FunctionName("SetSetupStep")]
+        [FunctionName("SetSelectedOrg")]
         public static async Task<IActionResult> Run(
             [HttpTrigger(AuthorizationLevel.Admin, "post", Route = null)] HttpRequest req,
             ILogger log)
         {
-            return await req.Manage<SetSetupStepRequest, ForgeInfrastructureState, ForgeInfrastructureStateHarness>(log, async (mgr, reqData) =>
+            return await req.Manage<SetSelectedOrgRequest, ForgeInfrastructureState, ForgeInfrastructureStateHarness>(log, async (mgr, reqData) =>
             {
-                await mgr.SetSetupStep(reqData.Step);
+                await mgr.SetSelectedOrg(reqData.Organization);
 
                 return await mgr.WhenAll(
                     mgr.Ensure()

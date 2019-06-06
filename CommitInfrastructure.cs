@@ -10,38 +10,30 @@ using Newtonsoft.Json;
 using System.Runtime.Serialization;
 using LCU.State.API.Forge.Infrastructure.Models;
 using LCU.State.API.Forge.Infrastructure.Harness;
-using Fathym;
 
 namespace LCU.State.API.Forge.Infrastructure
 {
     [Serializable]
     [DataContract]
-    public class ConfigureInfrastructureRequest
+    public class CommitInfrastructureRequest
     {
-        [DataMember]
-        public virtual string InfrastructureType { get; set; }
-
-        [DataMember]
-        public virtual MetadataModel Settings { get; set; }
-
-        [DataMember]
-        public virtual bool UseDefaultSettings { get; set; }
     }
 
-    public static class ConfigureInfrastructure
+    public static class CommitInfrastructure
     {
-        [FunctionName("ConfigureInfrastructure")]
+        [FunctionName("CommitInfrastructure")]
         public static async Task<IActionResult> Run(
             [HttpTrigger(AuthorizationLevel.Admin, "post", Route = null)] HttpRequest req,
             ILogger log, ExecutionContext context)
         {
-            return await req.Manage<ConfigureInfrastructureRequest, ForgeInfrastructureState, ForgeInfrastructureStateHarness>(log, async (mgr, reqData) =>
+            return await req.Manage<CommitInfrastructureRequest, ForgeInfrastructureState, ForgeInfrastructureStateHarness>(log, async (mgr, reqData) =>
             {
-                await mgr.ConfigureInfrastructure(reqData.InfrastructureType, reqData.UseDefaultSettings, reqData.Settings);
+                await mgr.CommitInfrastructure(context.FunctionDirectory);
 
                 await mgr.Ensure();
 
                 return await mgr.WhenAll(
+                    mgr.HasProdConfig(context.FunctionDirectory),
                     mgr.LoadInfrastructureRepository(context.FunctionDirectory)
                 );
             });

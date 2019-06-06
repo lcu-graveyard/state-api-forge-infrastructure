@@ -8,6 +8,7 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Logging;
 using Newtonsoft.Json;
 using System.Runtime.Serialization;
+using Fathym;
 using LCU.State.API.Forge.Infrastructure.Models;
 using LCU.State.API.Forge.Infrastructure.Harness;
 
@@ -15,22 +16,20 @@ namespace LCU.State.API.Forge.Infrastructure
 {
     [Serializable]
     [DataContract]
-    public class SetSetupStepRequest
+    public class ConfigureDevOpsRequest
     {
-        [DataMember]
-        public virtual ForgeInfrastructureSetupStepTypes? Step {get; set;}
     }
-    
-    public static class SetSetupStep
+
+    public static class ConfigureDevOps
     {
-        [FunctionName("SetSetupStep")]
+        [FunctionName("ConfigureDevOps")]
         public static async Task<IActionResult> Run(
-            [HttpTrigger(AuthorizationLevel.Admin, "post", Route = null)] HttpRequest req,
+            [HttpTrigger(AuthorizationLevel.Admin, "get", "post", Route = null)] HttpRequest req,
             ILogger log)
         {
-            return await req.Manage<SetSetupStepRequest, ForgeInfrastructureState, ForgeInfrastructureStateHarness>(log, async (mgr, reqData) =>
+            return await req.Manage<ConfigureDevOpsRequest, ForgeInfrastructureState, ForgeInfrastructureStateHarness>(log, async (mgr, reqData) =>
             {
-                await mgr.SetSetupStep(reqData.Step);
+                await mgr.ConfigureDevOps();
 
                 return await mgr.WhenAll(
                     mgr.Ensure()

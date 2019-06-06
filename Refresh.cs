@@ -16,16 +16,18 @@ namespace LCU.State.API.Forge.Infrastructure
     {
         [FunctionName("Refresh")]
         public static async Task<IActionResult> Run(
-            [HttpTrigger(AuthorizationLevel.Admin, "get", "post", Route = null)] HttpRequest req,
-            ILogger log)
+            [HttpTrigger(AuthorizationLevel.Admin, "post", Route = null)] HttpRequest req,
+            ILogger log, ExecutionContext context)
         {
             return await req.Manage<dynamic, ForgeInfrastructureState, ForgeInfrastructureStateHarness>(log, async (mgr, reqData) =>
             {
                 await mgr.Ensure();
 
+                await mgr.HasProdConfig(context.FunctionDirectory);
+
+                await mgr.LoadInfrastructureRepository(context.FunctionDirectory);
+
                 return await mgr.WhenAll(
-                    mgr.HasInfrastructure(),
-                    mgr.HasSourceControl()
                 );
             });
         }

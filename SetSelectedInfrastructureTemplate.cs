@@ -15,25 +15,24 @@ namespace LCU.State.API.Forge.Infrastructure
 {
     [Serializable]
     [DataContract]
-    public class SetSetupStepRequest
+    public class SetSelectedInfrastructureTemplateRequest
     {
         [DataMember]
-        public virtual ForgeInfrastructureSetupStepTypes? Step {get; set;}
+        public virtual string Template { get; set; }
     }
-    
-    public static class SetSetupStep
+
+    public static class SetSelectedInfrastructureTemplate
     {
-        [FunctionName("SetSetupStep")]
+        [FunctionName("SetSelectedInfrastructureTemplate")]
         public static async Task<IActionResult> Run(
-            [HttpTrigger(AuthorizationLevel.Admin, "post", Route = null)] HttpRequest req,
+            [HttpTrigger(AuthorizationLevel.Admin, "get", "post", Route = null)] HttpRequest req,
             ILogger log)
         {
-            return await req.Manage<SetSetupStepRequest, ForgeInfrastructureState, ForgeInfrastructureStateHarness>(log, async (mgr, reqData) =>
+            return await req.Manage<SetSelectedInfrastructureTemplateRequest, ForgeInfrastructureState, ForgeInfrastructureStateHarness>(log, async (mgr, reqData) =>
             {
-                await mgr.SetSetupStep(reqData.Step);
+                await mgr.SetSelectedInfrastructureTemplate(reqData.Template);
 
                 return await mgr.WhenAll(
-                    mgr.Ensure()
                 );
             });
         }
