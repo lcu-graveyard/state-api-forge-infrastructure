@@ -336,6 +336,8 @@ namespace LCU.State.API.Forge.Infrastructure.Harness
 
             await commitAndSync($"Seeding {state.AppSeed.NewName} with {state.AppSeed.SelectedSeed}", repoPath, credsProvider);
 
+            //  TODO:  Create Initial Forge Settings, exposing default LCUs
+
             return state;
         }
 
