@@ -11,6 +11,9 @@ namespace LCU.State.API.Forge.Infrastructure.Models
     public class ForgeInfrastructureState
     {
         [DataMember]
+        public virtual InfrastructureApplicationSeedState AppSeed { get; set; }
+
+        [DataMember]
         public virtual DevOpsState DevOps { get; set; }
 
         [DataMember]
@@ -50,7 +53,7 @@ namespace LCU.State.API.Forge.Infrastructure.Models
     {
         [DataMember]
         public virtual bool Configured { get; set; }
-        
+
         [DataMember]
         public virtual bool Setup { get; set; }
     }
@@ -60,10 +63,10 @@ namespace LCU.State.API.Forge.Infrastructure.Models
     {
         [DataMember]
         public virtual List<Octokit.Organization> Organizations { get; set; }
-        
+
         [DataMember]
         public virtual List<Octokit.Repository> OrgRepos { get; set; }
-        
+
         [DataMember]
         public virtual string SelectedOrg { get; set; }
     }
@@ -73,9 +76,57 @@ namespace LCU.State.API.Forge.Infrastructure.Models
     {
         [DataMember]
         public virtual List<string> Options { get; set; }
-        
+
         [DataMember]
         public virtual string SelectedTemplate { get; set; }
+    }
+
+    [DataContract]
+    public class InfrastructureApplicationSeedOption
+    {
+        [DataMember]
+        public virtual List<string> Commands { get; set; }
+
+        [DataMember]
+        public virtual string Description { get; set; }
+
+        [DataMember]
+        public virtual string ImageSource { get; set; }
+
+        [DataMember]
+        public virtual string Lookup { get; set; }
+
+        [DataMember]
+        public virtual string Name { get; set; }
+
+        [DataMember]
+        public virtual InfrastructureApplicationSeedFork SeedFork { get; set; }
+    }
+
+    [DataContract]
+    public class InfrastructureApplicationSeedState
+    {
+        [DataMember]
+        public virtual bool Created { get; set; }
+
+        [DataMember]
+        public virtual string NewName { get; set; }
+
+        [DataMember]
+        public virtual List<InfrastructureApplicationSeedOption> Options { get; set; }
+
+        [DataMember]
+        public virtual string SelectedSeed { get; set; }
+    }
+
+    [DataContract]
+    public class InfrastructureApplicationSeedFork
+    {
+        [DataMember]
+        public virtual string Organization { get; set; }
+
+        [DataMember]
+        public virtual string Repository { get; set; }
     }
 
     [DataContract]

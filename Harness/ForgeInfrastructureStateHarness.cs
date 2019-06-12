@@ -36,6 +36,8 @@ using Microsoft.Rest;
 using Microsoft.Azure.Management.ResourceManager.Fluent.Authentication;
 using Microsoft.Azure.Management.Fluent;
 using System.Threading;
+using System.Diagnostics;
+using System.Net;
 
 namespace LCU.State.API.Forge.Infrastructure.Harness
 {
@@ -103,6 +105,18 @@ namespace LCU.State.API.Forge.Infrastructure.Harness
 
             if (!gitHubToken.IsNullOrEmpty())
             {
+                // var client = new Octokit.Caching.CachingHttpClient(new Octokit.Internal.HttpClientAdapter(() => Octokit.Internal.HttpMessageHandlerFactory.CreateDefault(new WebProxy())), 
+                //     new Octokit.Caching.NaiveInMemoryCache());
+
+                // var connection = new Octokit.Connection(
+                //     new Octokit.ProductHeaderValue("LCU-STATE-API-FORGE-INFRASTRUCTURE"),
+                //     Octokit.GitHubClient.GitHubApiUrl,
+                //     new Octokit.Internal.InMemoryCredentialStore(new Octokit.Credentials(gitHubToken)),
+                //     client,
+                //     new Octokit.Internal.SimpleJsonSerializer());
+
+                // gitHubClient = new Octokit.GitHubClient(connection);
+
                 gitHubClient = new Octokit.GitHubClient(new Octokit.ProductHeaderValue("LCU-STATE-API-FORGE-INFRASTRUCTURE"));
 
                 var tokenAuth = new Octokit.Credentials(gitHubToken);
@@ -167,170 +181,489 @@ namespace LCU.State.API.Forge.Infrastructure.Harness
 
             var repoOrg = state.EnvSettings?.Metadata?["GitHubOrganization"]?.ToString();
 
-            TeamProjectReference project = null;
-
-            using (var projClient = devOpsConn.GetClient<ProjectHttpClient>())
-            {
-                var projects = await projClient.GetProjects(ProjectState.All);
-
-                project = projects.FirstOrDefault(p => p.Name == "LCU OS");
-
-                if (project == null)
-                {
-                    var createRef = await projClient.QueueCreateProject(new TeamProject()
-                    {
-                        Name = "LCU OS",
-                        Description = "Dev Ops automation and integrations for Low Code Units",
-                        Capabilities = new Dictionary<string, Dictionary<string, string>>
-                    {
-                        {
-                            "versioncontrol", new Dictionary<string, string>()
-                            {
-                                { "sourceControlType", "Git"}
-                            }
-                        },
-                        {
-                            "processTemplate", new Dictionary<string, string>()
-                            {
-                                { "templateTypeId", "6b724908-ef14-45cf-84f8-768b5384da45"}
-                            }
-                        }
-                    },
-                        Visibility = ProjectVisibility.Private
-                    });
-                }
-
-                while (project == null || project.State == ProjectState.CreatePending)
-                {
-                    projects = await projClient.GetProjects(ProjectState.All);
-
-                    project = projects.FirstOrDefault(p => p.Name == "LCU OS");
-
-                    await Task.Delay(100);
-                }
-            }
-
-            var name = $"{repoOrg} {repoName}";
+            var project = await getOrCreateDevOpsProject();
 
             var repo = await gitHubClient.Repository.Get(repoOrg, repoName);
-
-            var gitHubCSId = "";
-
-            var azureRMCSId = "";
 
             var azure = Azure.Authenticate(getAuthorization());
 
             var azureSub = azure.Subscriptions.GetById(state.EnvSettings.Metadata["AzureSubID"].ToString());
 
-            using (var seClient = devOpsConn.GetClient<ServiceEndpointHttpClient>())
-            {
-                var ses = await seClient.GetServiceEndpointsAsync(project.Id.ToString());
+            var endpoints = await ensureDevOpsServiceEndpoints(project.Id.ToString(), state.EnvSettings.Metadata["AzureSubID"].ToString(), azureSub.DisplayName);
 
-                gitHubCSId = ses?.FirstOrDefault(se => se.Type.ToLower() == "github")?.Id.ToString();
+            var gitHubCSId = endpoints["github"];
 
-                azureRMCSId = ses?.FirstOrDefault(se => se.Type.ToLower() == "azurerm" && se.Name == $"Azure {azureSub.DisplayName}")?.Id.ToString();
-
-                if (azureRMCSId.IsNullOrEmpty())
-                {
-                    var se = await seClient.CreateServiceEndpointAsync(project.Id, new ServiceEndpoint()
-                    {
-                        Authorization = new EndpointAuthorization()
-                        {
-                            Parameters = new Dictionary<string, string>()
-                            {
-                                { "authenticationType", "spnKey" },
-                                { "serviceprincipalid", state.EnvSettings.Metadata["AzureAppID"].ToString() },
-                                { "serviceprincipalkey", state.EnvSettings.Metadata["AzureAppAuthKey"].ToString() },
-                                { "tenantid", state.EnvSettings.Metadata["AzureTenantID"].ToString() }
-                            },
-                            Scheme = "ServicePrincipal"
-                        },
-                        Data = new Dictionary<string, string>()
-                        {
-                            { "environment", "AzureCloud" },
-                            { "scopeLevel", "Subscription" },
-                            { "subscriptionName", azureSub.DisplayName },
-                            { "subscriptionId", state.EnvSettings.Metadata["AzureSubID"].ToString() }
-                        },
-                        Name = $"Azure {azureSub.DisplayName}",
-                        Type = "azurerm",
-                        Url = new Uri("https://management.azure.com/")
-                    });
-
-                    azureRMCSId = se?.Id.ToString();
-                }
-            }
+            var azureRMCSId = endpoints["azurerm"];
 
             var process = new DesignerProcess();
 
-            var phase = new Phase()
-            {
-                Condition = "succeeded()",
-                Name = "Prepare Build",
-                RefName = "Prepare_Build",
-                JobAuthorizationScope = BuildAuthorizationScope.ProjectCollection,
-                Target = new AgentPoolQueueTarget()
-                {
-                    ExecutionOptions = new AgentTargetExecutionOptions()
-                    {
-                        Type = 0
-                    },
-                    AllowScriptsAuthAccessOption = true
-                },
-                Steps = new List<BuildDefinitionStep>()
-                    {
-                        new BuildDefinitionStep()
-                        {
-                            AlwaysRun = false,
-                            Condition = "succeeded()",
-                            ContinueOnError = false,
-                            DisplayName = "Copy Templates",
-                            Enabled = true,
-                            Inputs = new Dictionary<string, string>()
-                            {
-                                { "CleanTargetFolder", "false" },
-                                { "Contents", @"**\*.json" },
-                                { "OverWrite", "false" },
-                                { "SourceFolder", "environments" },
-                                { "TargetFolder", "$(build.artifactstagingdirectory)" },
-                                { "flattenFolders", "false" }
-                            },
-                            RefName = "Copy_Templates",
-                            TaskDefinition = new TaskDefinitionReference()
-                            {
-                                DefinitionType= "task",
-                                VersionSpec = "2.*",
-                                Id = new Guid("5bfb729a-a7c8-4a78-a7c3-8d717bb7c13c")
-                            }
-                        },
-                        new BuildDefinitionStep()
-                        {
-                            AlwaysRun = false,
-                            Condition = "succeeded()",
-                            ContinueOnError = false,
-                            DisplayName = "Publish Artifact: drop",
-                            Enabled = true,
-                            Inputs = new Dictionary<string, string>()
-                            {
-                                { "ArtifactName", "drop" },
-                                { "ArtifactType", "Container" },
-                                { "Parallel", "false" },
-                                { "ParallelCount", "8" },
-                                { "PathtoPublish", "$(Build.ArtifactStagingDirectory)" },
-                                { "TargetPath", "" }
-                            },
-                            RefName = "Publish_Artifact",
-                            TaskDefinition = new TaskDefinitionReference()
-                            {
-                                DefinitionType= "task",
-                                VersionSpec = "1.*",
-                                Id = new Guid("2ff763a7-ce83-4e1f-bc89-0ae63477cebe")
-                            }
-                        }
-                    }
-            };
+            var phase = createBuildPhase();
 
             process.Phases.Add(phase);
+
+            var buildDef = createBuildDefinition(project, process, repo, repoOrg, repoName, gitHubCSId);
+
+            using (var bldClient = devOpsConn.GetClient<BuildHttpClient>())
+            {
+                buildDef = await bldClient.CreateDefinitionAsync(buildDef);
+            }
+
+            using (var bldClient = devOpsConn.GetClient<ReleaseHttpClient>())
+            {
+                var releaseDef = createBuildRelease(project, buildDef, repoOrg, repoName, azureRMCSId);
+
+                var release = await bldClient.CreateReleaseDefinitionAsync(releaseDef, project.Id);
+            }
+
+            return state;
+        }
+
+        public virtual async Task<ForgeInfrastructureState> ConfigureInfrastructure(string infraType, bool useDefaultSettings, MetadataModel settings)
+        {
+            if (useDefaultSettings && infraType == "Azure")
+            {
+                var orgLookup = state.GitHub.SelectedOrg;
+
+                var originOrgName = "lowcodeunit";
+
+                var repoName = "infrastructure";
+
+                Octokit.Repository orgInfraRepo = null;
+
+                try
+                {
+                    orgInfraRepo = await gitHubClient.Repository.Get(orgLookup, repoName);
+                }
+                catch (Octokit.NotFoundException nfex)
+                { }
+
+                if (orgInfraRepo == null)
+                {
+                    //  TODO: Power with data instead of static....  This way root infra repo can be controlled
+                    var forkedRepo = await gitHubClient.Repository.Forks.Create(originOrgName, repoName, new Octokit.NewRepositoryFork()
+                    {
+                        Organization = orgLookup
+                    });
+                }
+
+                settings.Metadata["GitHubRepository"] = repoName;
+
+                settings.Metadata["GitHubOrganization"] = orgLookup;
+
+                state.Environment = await prvGraph.SaveEnvironment(new Graphs.Registry.Enterprises.Provisioning.Environment()
+                {
+                    EnterprisePrimaryAPIKey = details.EnterpriseAPIKey,
+                    Lookup = $"{orgLookup}-prd",
+                    Name = $"{orgLookup} Production"
+                });
+
+                state.EnvSettings = await prvGraph.SaveEnvironmentSettings(details.EnterpriseAPIKey, state.Environment.Lookup, settings);
+
+                // state.SetupStep = null;
+            }
+            else
+                state.Error = "Only Azure Default Settings are currently supported";
+
+            return state;
+        }
+
+        public virtual async Task<ForgeInfrastructureState> CreateAppFromSeed(string filesRoot, string name)
+        {
+            var repoOrg = state.EnvSettings?.Metadata?["GitHubOrganization"]?.ToString();
+
+            var repoName = (state.AppSeed.SelectedSeed == "Angular" ? name : $"lcu-{name}").ToLower();
+
+            var appSeed = state.AppSeed.Options.FirstOrDefault(o => o.Lookup == state.AppSeed.SelectedSeed);
+
+            var appRepo = await getOrCreateRepository(repoOrg, repoName);
+
+            //  TODO:  Create Build and Release
+
+            var repoPath = Path.Combine(filesRoot, $"git\\repos\\{repoOrg}\\{repoName}");
+
+            var repoDir = new DirectoryInfo(repoPath);
+
+            await ensureRepo(repoDir, appRepo.CloneUrl);
+
+            var npmInfo = new ProcessStartInfo
+            {
+                FileName = "cmd",
+                RedirectStandardInput = true,
+                WorkingDirectory = repoPath
+            };
+
+            var usersHomePath = Path.Combine(filesRoot, @"Users\Home");
+
+            var usersHomeDrive = Path.GetPathRoot(usersHomePath).TrimEnd('\\');
+
+            npmInfo.Environment.Add("HOMEDRIVE", usersHomeDrive);
+
+            npmInfo.Environment.Add("HOMEPATH", usersHomePath.TrimStart(usersHomeDrive.ToArray()));
+
+            var npm = System.Diagnostics.Process.Start(npmInfo);
+
+            npm.StandardInput.WriteLine("npm i @lcu/cli@latest -g");
+
+            npm.StandardInput.WriteLine("npm i @angular/cli@7.3.9");
+
+            npm.StandardInput.WriteLine($"lcu init --workspace={repoName} --scope=@{repoOrg}");
+
+            var lcuTemplate = state.AppSeed.SelectedSeed == "Angular" ? "Default" : "LCU";
+
+            var projName = state.AppSeed.SelectedSeed == "Angular" ? name : "lcu";
+
+            npm.StandardInput.WriteLine($"lcu proj {projName} --template={lcuTemplate}");
+
+            npm.StandardInput.WriteLine($"exit");
+
+            // var npm = System.Diagnostics.Process.Start(npmInfo);
+
+            // appSeed.Commands.ForEach(command =>
+            // {
+            //     var runCmd = command
+            //         .Replace("{{repoName}}", repoName)
+            //         .Replace("{{repoOrg}}", repoOrg)
+            //         .Replace("{{projName}}", name);
+
+            //     npm.StandardInput.WriteLine(runCmd);
+            // });
+
+            // npm.StandardInput.WriteLine($"exit");
+
+            npm.WaitForExit();
+
+            var credsProvider = loadCredHandler();
+
+            await commitAndSync($"Seeding {state.AppSeed.NewName} with {state.AppSeed.SelectedSeed}", repoPath, credsProvider);
+
+            return state;
+        }
+
+        public virtual async Task<ForgeInfrastructureState> Ensure()
+        {
+            if (state.AppSeed == null)
+                state.AppSeed = new InfrastructureApplicationSeedState()
+                {
+                    Options = new List<InfrastructureApplicationSeedOption>()
+                };
+
+            if (state.DevOps == null)
+                state.DevOps = new DevOpsState();
+
+            if (state.GitHub == null || gitHubClient == null)
+                state.GitHub = new GitHubState();
+
+            if (state.InfraTemplate == null || gitHubClient == null)
+                state.InfraTemplate = new InfrastructureTemplateState();
+
+            return await WhenAll(
+                HasDevOps(),
+                HasDevOpsSetup(),
+                GetEnvironments(),
+                HasInfrastructure(),
+                HasSourceControl(),
+                ListGitHubOrganizations(),
+                ListGitHubOrgRepos(),
+                LoadAppSeed()
+            );
+        }
+
+        public virtual async Task<ForgeInfrastructureState> GetEnvironments()
+        {
+            var envs = await prvGraph.ListEnvironments(details.EnterpriseAPIKey);
+
+            if (!envs.IsNullOrEmpty())
+            {
+                state.Environment = envs.FirstOrDefault();
+
+                state.EnvSettings = await prvGraph.GetEnvironmentSettings(details.EnterpriseAPIKey, state.Environment?.Lookup);
+            }
+            else
+            {
+                state.Environment = null;
+
+                state.EnvSettings = null;
+            }
+
+            return state;
+        }
+
+        public virtual async Task<ForgeInfrastructureState> HasProdConfig(string filesRoot)
+        {
+            var repoName = state.EnvSettings?.Metadata?["GitHubRepository"]?.ToString();
+
+            var repoOrg = state.EnvSettings?.Metadata?["GitHubOrganization"]?.ToString();
+
+            state.ProductionConfigured = false;
+
+            if (!repoOrg.IsNullOrEmpty())
+            {
+                var repo = await gitHubClient.Repository.Get(repoOrg, repoName);
+
+                var repoPath = Path.Combine(filesRoot, $"git\\repos\\{repoOrg}\\{repoName}");
+
+                var repoDir = new DirectoryInfo(repoPath);
+
+                await ensureRepo(repoDir, repo.CloneUrl);
+
+                var envPath = Path.Combine(repoDir.FullName, "environments", state.Environment.Lookup);
+
+                var tmplPath = Path.Combine(envPath, "template.json");
+
+                state.ProductionConfigured = Directory.Exists(envPath);
+            }
+
+            return state;
+        }
+
+        public virtual async Task<ForgeInfrastructureState> HasDevOps()
+        {
+            state.DevOps.Configured = !devOpsToken.IsNullOrEmpty();
+
+            return state;
+        }
+
+        public virtual async Task<ForgeInfrastructureState> HasDevOpsSetup()
+        {
+            var repoName = state.EnvSettings?.Metadata?["GitHubRepository"]?.ToString();
+
+            var repoOrg = state.EnvSettings?.Metadata?["GitHubOrganization"]?.ToString();
+
+            TeamProjectReference project = null;
+
+            if (devOpsConn != null)
+            {
+                using (var projClient = devOpsConn.GetClient<ProjectHttpClient>())
+                {
+                    var projects = await projClient.GetProjects(ProjectState.All);
+
+                    project = projects.FirstOrDefault(p => p.Name == "LCU OS");
+                }
+            }
+
+            if (project != null)
+            {
+                using (var bldClient = devOpsConn.GetClient<ReleaseHttpClient>())
+                {
+                    var releases = await bldClient.GetReleaseDefinitionsAsync(project.Id);
+
+                    var name = $"{repoOrg} {repoName}";
+
+                    var release = releases.FirstOrDefault(r => r.Name == name);
+
+                    state.DevOps.Setup = release != null;
+                }
+            }
+            else
+            {
+                state.DevOps.Setup = false;
+            }
+
+            return state;
+        }
+
+        public virtual async Task<ForgeInfrastructureState> HasInfrastructure()
+        {
+            var envs = await prvGraph.ListEnvironments(details.EnterpriseAPIKey);
+
+
+            state.InfrastructureConfigured = !envs.IsNullOrEmpty() && envs.Any(env =>
+            {
+                var envConfig = prvGraph.GetEnvironment(details.EnterpriseAPIKey, env.Lookup).Result;
+
+                return envConfig != null;
+            });
+
+            return state;
+        }
+
+        public virtual async Task<ForgeInfrastructureState> HasSourceControl()
+        {
+            state.SourceControlConfigured = !gitHubToken.IsNullOrEmpty();
+
+            return state;
+        }
+
+        public virtual async Task<ForgeInfrastructureState> ListGitHubOrganizations()
+        {
+            if (gitHubClient != null)
+            {
+                var orgs = await gitHubClient.Organization.GetAllForCurrent();
+
+                state.GitHub.Organizations = orgs.ToList();
+            }
+            else
+                state.GitHub.Organizations = new List<Octokit.Organization>();
+
+            return state;
+        }
+
+        public virtual async Task<ForgeInfrastructureState> ListGitHubOrgRepos()
+        {
+            if (gitHubClient != null && !state.GitHub.SelectedOrg.IsNullOrEmpty())
+            {
+                var repos = await gitHubClient.Repository.GetAllForOrg(state.GitHub.SelectedOrg);
+
+                state.GitHub.OrgRepos = repos.ToList();
+            }
+            else
+                state.GitHub.OrgRepos = new List<Octokit.Repository>();
+
+            return state;
+        }
+
+        public virtual async Task<ForgeInfrastructureState> LoadAppSeed()
+        {
+            state.AppSeed.Options = new List<InfrastructureApplicationSeedOption>();
+
+            state.AppSeed.Options.Add(new InfrastructureApplicationSeedOption()
+            {
+                Name = "Angular Seed",
+                Description = "Start with a simple angular seed.",
+                Lookup = "Angular",
+                ImageSource = "https://angular.io/assets/images/logos/angular/angular.svg"
+            });
+
+            state.AppSeed.Options.Add(new InfrastructureApplicationSeedOption()
+            {
+                Name = "Low Code Unit",
+                Description = "Start creating a new Low Code Unit.",
+                Lookup = "LowCodeUnit",
+                ImageSource = "https://fathym.com/wp-content/uploads/2018/03/Fathym-Logo_Registered_xxsm.png"
+            });
+
+            return state;
+        }
+
+        public virtual async Task<ForgeInfrastructureState> LoadInfrastructureRepository(string filesRoot)
+        {
+            var repoName = state.EnvSettings?.Metadata?["GitHubRepository"]?.ToString();
+
+            var repoOrg = state.EnvSettings?.Metadata?["GitHubOrganization"]?.ToString();
+
+            state.InfraTemplate.Options = new List<string>();
+
+            if (!repoOrg.IsNullOrEmpty())
+            {
+                var repo = await gitHubClient.Repository.Get(repoOrg, repoName);
+
+                var repoPath = Path.Combine(filesRoot, $"git\\repos\\{repoOrg}\\{repoName}");
+
+                var repoDir = new DirectoryInfo(repoPath);
+
+                await ensureRepo(repoDir, repo.CloneUrl);
+
+                var topLevelDirs = repoDir.GetDirectories();
+
+                var modulesDir = topLevelDirs.FirstOrDefault(d => d.Name == "modules");
+
+                //  TODO:  Load Modules into state
+
+                var templatesDir = topLevelDirs.FirstOrDefault(d => d.Name == "templates");
+
+                var templateFiles = templatesDir.GetFiles("*", SearchOption.AllDirectories);
+
+                state.InfraTemplate.Options = templateFiles.Select(tf =>
+                {
+                    return tf.DirectoryName.Replace(templatesDir.FullName, String.Empty).Trim('\\');
+                }).ToList();
+
+                var appsDir = topLevelDirs.FirstOrDefault(d => d.Name == "applications");
+
+                var appsFiles = appsDir.GetFiles("*", SearchOption.AllDirectories);
+
+                state.AppSeed.Options = appsFiles.Select(af =>
+                {
+                    var lookup = af.DirectoryName.Replace(templatesDir.FullName, String.Empty).Trim('\\');
+
+                    using (var rdr = af.OpenText())
+                    {
+                        var appSeed = rdr.ReadToEnd().FromJSON<InfrastructureApplicationSeedOption>();
+
+                        appSeed.Lookup = lookup;
+                        
+                        return appSeed;
+                    }
+                }).ToList();
+            }
+
+            return state;
+        }
+
+        public virtual async Task<ForgeInfrastructureState> SetSelectedInfrastructureTemplate(string template)
+        {
+            state.InfraTemplate.SelectedTemplate = template;
+
+            return state;
+        }
+
+        public virtual async Task<ForgeInfrastructureState> SetSelectedOrg(string org)
+        {
+            state.GitHub.SelectedOrg = org;
+
+            return state;
+        }
+
+        public virtual async Task<ForgeInfrastructureState> SetSetupStep(ForgeInfrastructureSetupStepTypes? step)
+        {
+            state.SetupStep = step;
+
+            return state;
+        }
+
+        public virtual async Task<ForgeInfrastructureState> SetupAppSeed(string seedLookup)
+        {
+            state.AppSeed.SelectedSeed = seedLookup;
+
+            return state;
+        }
+        #endregion
+
+        #region Helpers
+        protected virtual async Task checkoutAndSync(string repoPath, LibGit2Sharp.Handlers.CredentialsHandler credsProvider)
+        {
+            using (var gitRepo = new LibGit2Sharp.Repository(repoPath))
+            {
+                LibGit2Sharp.Commands.Checkout(gitRepo, gitRepo.Branches["master"]);
+
+                var author = await loadGitHubSignature();
+
+                LibGit2Sharp.Commands.Pull(gitRepo, author, new LibGit2Sharp.PullOptions()
+                {
+                    FetchOptions = new LibGit2Sharp.FetchOptions()
+                    {
+                        CredentialsProvider = credsProvider
+                    }
+                });
+            }
+        }
+
+        protected virtual async Task commitAndSync(string message, string repoPath, LibGit2Sharp.Handlers.CredentialsHandler credsProvider)
+        {
+            using (var gitRepo = new LibGit2Sharp.Repository(repoPath))
+            {
+                var author = await loadGitHubSignature();
+
+                Commands.Stage(gitRepo, "*");
+
+                if (gitRepo.RetrieveStatus().IsDirty)
+                    gitRepo.Commit(message, author, author, new LibGit2Sharp.CommitOptions());
+
+                var remote = gitRepo.Network.Remotes["origin"];
+
+                var pushRefSpec = $"refs/heads/master";
+
+                gitRepo.Network.Push(remote, pushRefSpec, new PushOptions()
+                {
+                    CredentialsProvider = credsProvider
+                });
+            }
+        }
+
+        protected virtual BuildDefinition createBuildDefinition(TeamProjectReference project, DesignerProcess process, Octokit.Repository repo,
+            string repoOrg, string repoName, string gitHubCSId)
+        {
+            var name = $"{repoOrg} {repoName}";
 
             var buildDef = new BuildDefinition()
             {
@@ -422,472 +755,287 @@ namespace LCU.State.API.Forge.Infrastructure.Harness
                 Value = "1"
             });
 
-            using (var bldClient = devOpsConn.GetClient<BuildHttpClient>())
-            {
-                buildDef = await bldClient.CreateDefinitionAsync(buildDef);
-            }
+            return buildDef;
+        }
 
-            using (var bldClient = devOpsConn.GetClient<ReleaseHttpClient>())
+        protected virtual Phase createBuildPhase()
+        {
+            return new Phase()
             {
-                var artifact = new Microsoft.VisualStudio.Services.ReleaseManagement.WebApi.Contracts.Artifact()
+                Condition = "succeeded()",
+                Name = "Prepare Build",
+                RefName = "Prepare_Build",
+                JobAuthorizationScope = BuildAuthorizationScope.ProjectCollection,
+                Target = new AgentPoolQueueTarget()
                 {
-                    Alias = $"_{repoOrg} {repoName}",
-                    IsPrimary = true,
-                    IsRetained = false,
-                    Type = "Build",
-                    DefinitionReference = new Dictionary<string, ArtifactSourceReference>()
+                    ExecutionOptions = new AgentTargetExecutionOptions()
                     {
+                        Type = 0
+                    },
+                    AllowScriptsAuthAccessOption = true
+                },
+                Steps = new List<BuildDefinitionStep>()
+                    {
+                        new BuildDefinitionStep()
                         {
-                            "IsMultiDefinitionType", new ArtifactSourceReference() { Id = "False", Name = "False" }
+                            AlwaysRun = false,
+                            Condition = "succeeded()",
+                            ContinueOnError = false,
+                            DisplayName = "Copy Templates",
+                            Enabled = true,
+                            Inputs = new Dictionary<string, string>()
+                            {
+                                { "CleanTargetFolder", "false" },
+                                { "Contents", @"**\*.json" },
+                                { "OverWrite", "false" },
+                                { "SourceFolder", "environments" },
+                                { "TargetFolder", "$(build.artifactstagingdirectory)" },
+                                { "flattenFolders", "false" }
+                            },
+                            RefName = "Copy_Templates",
+                            TaskDefinition = new TaskDefinitionReference()
+                            {
+                                DefinitionType= "task",
+                                VersionSpec = "2.*",
+                                Id = new Guid("5bfb729a-a7c8-4a78-a7c3-8d717bb7c13c")
+                            }
                         },
+                        new BuildDefinitionStep()
                         {
-                            "definition", new ArtifactSourceReference() { Id = buildDef.Id.ToString(), Name = name }
-                        },
-                        {
-                            "project", new ArtifactSourceReference() { Id = project.Id.ToString(), Name = project.Name }
+                            AlwaysRun = false,
+                            Condition = "succeeded()",
+                            ContinueOnError = false,
+                            DisplayName = "Publish Artifact: drop",
+                            Enabled = true,
+                            Inputs = new Dictionary<string, string>()
+                            {
+                                { "ArtifactName", "drop" },
+                                { "ArtifactType", "Container" },
+                                { "Parallel", "false" },
+                                { "ParallelCount", "8" },
+                                { "PathtoPublish", "$(Build.ArtifactStagingDirectory)" },
+                                { "TargetPath", "" }
+                            },
+                            RefName = "Publish_Artifact",
+                            TaskDefinition = new TaskDefinitionReference()
+                            {
+                                DefinitionType= "task",
+                                VersionSpec = "1.*",
+                                Id = new Guid("2ff763a7-ce83-4e1f-bc89-0ae63477cebe")
+                            }
                         }
                     }
-                };
+            };
+        }
 
-                var safeEnvName = state.Environment.Lookup.Replace("-", String.Empty);
+        protected virtual ReleaseDefinition createBuildRelease(TeamProjectReference project, BuildDefinition buildDef, string repoOrg, string repoName, string azureRMCSId)
+        {
+            var name = $"{repoOrg} {repoName}";
 
-                var releaseDef = new ReleaseDefinition()
+            var artifact = new Microsoft.VisualStudio.Services.ReleaseManagement.WebApi.Contracts.Artifact()
+            {
+                Alias = $"_{name}",
+                IsPrimary = true,
+                IsRetained = false,
+                Type = "Build",
+                DefinitionReference = new Dictionary<string, ArtifactSourceReference>()
                 {
-                    Artifacts = new List<Microsoft.VisualStudio.Services.ReleaseManagement.WebApi.Contracts.Artifact>()
                     {
-                        artifact
+                        "IsMultiDefinitionType", new ArtifactSourceReference() { Id = "False", Name = "False" }
                     },
-                    Environments = new List<ReleaseDefinitionEnvironment>()
                     {
-                        new ReleaseDefinitionEnvironment()
+                        "definition", new ArtifactSourceReference() { Id = buildDef.Id.ToString(), Name = name }
+                    },
+                    {
+                        "project", new ArtifactSourceReference() { Id = project.Id.ToString(), Name = project.Name }
+                    }
+                }
+            };
+
+            var safeEnvName = state.Environment.Lookup.Replace("-", String.Empty);
+
+            var releaseDef = new ReleaseDefinition()
+            {
+                Artifacts = new List<Microsoft.VisualStudio.Services.ReleaseManagement.WebApi.Contracts.Artifact>()
+                {
+                    artifact
+                },
+                Environments = new List<ReleaseDefinitionEnvironment>()
+                {
+                    new ReleaseDefinitionEnvironment()
+                    {
+                        // Conditions = new List<Condition>()
+                        // {
+                        //     new Condition()
+                        //     {
+                        //         ConditionType= ConditionType.Event,
+                        //         Name = "ReleaseStarted",
+                        //         Value = String.Empty
+                        //     }
+                        // },
+                        Name = "Production",
+                        PostDeployApprovals = new ReleaseDefinitionApprovals()
                         {
-                            // Conditions = new List<Condition>()
-                            // {
-                            //     new Condition()
-                            //     {
-                            //         ConditionType= ConditionType.Event,
-                            //         Name = "ReleaseStarted",
-                            //         Value = String.Empty
-                            //     }
-                            // },
-                            Name = "Production",
-                            PostDeployApprovals = new ReleaseDefinitionApprovals()
+                            Approvals = new List<ReleaseDefinitionApprovalStep>()
                             {
-                                Approvals = new List<ReleaseDefinitionApprovalStep>()
+                                new ReleaseDefinitionApprovalStep()
                                 {
-                                    new ReleaseDefinitionApprovalStep()
-                                    {
-                                        IsAutomated = true,
-                                        IsNotificationOn = false,
-                                        Rank = 1
-                                    }
+                                    IsAutomated = true,
+                                    IsNotificationOn = false,
+                                    Rank = 1
                                 }
-                            },
-                            PreDeployApprovals = new ReleaseDefinitionApprovals()
+                            }
+                        },
+                        PreDeployApprovals = new ReleaseDefinitionApprovals()
+                        {
+                            Approvals = new List<ReleaseDefinitionApprovalStep>()
                             {
-                                Approvals = new List<ReleaseDefinitionApprovalStep>()
+                                new ReleaseDefinitionApprovalStep()
                                 {
-                                    new ReleaseDefinitionApprovalStep()
-                                    {
-                                        IsAutomated = true,
-                                        IsNotificationOn = false,
-                                        Rank = 1
-                                    }
+                                    IsAutomated = true,
+                                    IsNotificationOn = false,
+                                    Rank = 1
                                 }
-                            },
-                            RetentionPolicy = new EnvironmentRetentionPolicy()
+                            }
+                        },
+                        RetentionPolicy = new EnvironmentRetentionPolicy()
+                        {
+                            DaysToKeep = 30,
+                            ReleasesToKeep = 3,
+                            RetainBuild = true
+                        },
+                        DeployPhases = new List<DeployPhase>()
+                        {
+                            new AgentBasedDeployPhase()
                             {
-                                DaysToKeep = 30,
-                                ReleasesToKeep = 3,
-                                RetainBuild = true
-                            },
-                            DeployPhases = new List<DeployPhase>()
-                            {
-                                new AgentBasedDeployPhase()
+                                DeploymentInput = new AgentDeploymentInput()
                                 {
-                                    DeploymentInput = new AgentDeploymentInput()
+                                    QueueId = buildDef.Queue.Id
+                                },
+                                Name = "Agent Job",
+                                Rank = 1,
+                                WorkflowTasks = new List<WorkflowTask>()
+                                {
+                                    new WorkflowTask()
                                     {
-                                        QueueId = buildDef.Queue.Id
-                                    },
-                                    Name = "Agent Job",
-                                    Rank = 1,
-                                    WorkflowTasks = new List<WorkflowTask>()
-                                    {
-                                        new WorkflowTask()
+                                        AlwaysRun = false,
+                                        Condition = "succeeded()",
+                                        ContinueOnError = false,
+                                        DefinitionType = "task",
+                                        Enabled = true,
+                                        Inputs = new Dictionary<string, string>()
                                         {
-                                            AlwaysRun = false,
-                                            Condition = "succeeded()",
-                                            ContinueOnError = false,
-                                            DefinitionType = "task",
-                                            Enabled = true,
-                                            Inputs = new Dictionary<string, string>()
-                                            {
-                                                { "ConnectedServiceName", azureRMCSId },
-                                                { "action", "Create Or Update Resource Group" },
-                                                { "addSpnToEnvironment", "false" },
-                                                { "copyAzureVMTags", "true" },
-                                                { "csmFile", $"$(System.DefaultWorkingDirectory)/_{repoOrg} {repoName}/drop/{state.Environment.Lookup}/template.json" },
-                                                { "deploymentMode", "Incremental" },
-                                                { "enableDeploymentPrerequisites", "None" },
-                                                { "location", "West US 2" },  //    TODO:  Should come configured
-                                                { "overrideParameters", $"-name {state.Environment.Lookup} -safename {safeEnvName}" },
-                                                { "resourceGroupName", state.Environment.Lookup },
-                                                { "runAgentServiceAsUser", "false" },
-                                                { "templateLocation", "Linked artifact" }
-                                            },
-                                            Name = "Azure Deployment:Create Or Update Resource Group action",
-                                            TaskId = new Guid("94a74903-f93f-4075-884f-dc11f34058b4"),
-                                            Version = "2.*"
-                                        }
+                                            { "ConnectedServiceName", azureRMCSId },
+                                            { "action", "Create Or Update Resource Group" },
+                                            { "addSpnToEnvironment", "false" },
+                                            { "copyAzureVMTags", "true" },
+                                            { "csmFile", $"$(System.DefaultWorkingDirectory)/_{repoOrg} {repoName}/drop/{state.Environment.Lookup}/template.json" },
+                                            { "deploymentMode", "Incremental" },
+                                            { "enableDeploymentPrerequisites", "None" },
+                                            { "location", "West US 2" },  //    TODO:  Should come configured
+                                            { "overrideParameters", $"-name {state.Environment.Lookup} -safename {safeEnvName}" },
+                                            { "resourceGroupName", state.Environment.Lookup },
+                                            { "runAgentServiceAsUser", "false" },
+                                            { "templateLocation", "Linked artifact" }
+                                        },
+                                        Name = "Azure Deployment:Create Or Update Resource Group action",
+                                        TaskId = new Guid("94a74903-f93f-4075-884f-dc11f34058b4"),
+                                        Version = "2.*"
                                     }
                                 }
                             }
                         }
-                    },
-                    Name = name,
-                    ReleaseNameFormat = "Release-$(rev:r)",
-                    Triggers = new List<ReleaseTriggerBase>()
-                    {
-                        new ArtifactSourceTrigger()
-                        {
-                            ArtifactAlias = $"_{repoOrg} {repoName}",
-                            TriggerConditions = null
-                        }
                     }
-                };
-
-                var release = await bldClient.CreateReleaseDefinitionAsync(releaseDef, project.Id);
-            }
-
-            return state;
-        }
-
-        public virtual async Task<ForgeInfrastructureState> ConfigureInfrastructure(string infraType, bool useDefaultSettings, MetadataModel settings)
-        {
-            if (useDefaultSettings && infraType == "Azure")
-            {
-                var orgLookup = state.GitHub.SelectedOrg;
-
-                var originOrgName = "lowcodeunit";
-
-                var repoName = "infrastructure";
-
-                Octokit.Repository orgInfraRepo = null;
-
-                try
+                },
+                Name = name,
+                ReleaseNameFormat = "Release-$(rev:r)",
+                Triggers = new List<ReleaseTriggerBase>()
                 {
-                    orgInfraRepo = await gitHubClient.Repository.Get(orgLookup, repoName);
-                }
-                catch (Octokit.NotFoundException nfex)
-                { }
-
-                if (orgInfraRepo == null)
-                {
-                    //  TODO: Power with data instead of static....  This way root infra repo can be controlled
-                    var forkedRepo = await gitHubClient.Repository.Forks.Create(originOrgName, repoName, new Octokit.NewRepositoryFork()
+                    new ArtifactSourceTrigger()
                     {
-                        Organization = orgLookup
-                    });
+                        ArtifactAlias = $"_{repoOrg} {repoName}",
+                        TriggerConditions = null
+                    }
                 }
-
-                settings.Metadata["GitHubRepository"] = repoName;
-
-                settings.Metadata["GitHubOrganization"] = orgLookup;
-
-                state.Environment = await prvGraph.SaveEnvironment(new Graphs.Registry.Enterprises.Provisioning.Environment()
-                {
-                    EnterprisePrimaryAPIKey = details.EnterpriseAPIKey,
-                    Lookup = $"{orgLookup}-prd",
-                    Name = $"{orgLookup} Production"
-                });
-
-                state.EnvSettings = await prvGraph.SaveEnvironmentSettings(details.EnterpriseAPIKey, state.Environment.Lookup, settings);
-
-                // state.SetupStep = null;
-            }
-            else
-                state.Error = "Only Azure Default Settings are currently supported";
-
-            return state;
-        }
-
-        public virtual async Task<ForgeInfrastructureState> CreateGitHubRepository(string org, string repoName)
-        {
-            var newRepo = new Octokit.NewRepository(repoName)
-            {
-
             };
 
-            var res = await gitHubClient.Repository.Create(newRepo);
-
-            return state;
+            return releaseDef;
         }
 
-        public virtual async Task<ForgeInfrastructureState> Ensure()
+        protected virtual async Task<IDictionary<string, string>> ensureDevOpsServiceEndpoints(string projectId, string azureSubId, string azureSubName)
         {
-            if (state.DevOps == null)
-                state.DevOps = new DevOpsState();
+            var endpoints = new Dictionary<string, string>();
 
-            if (state.GitHub == null || gitHubClient == null)
-                state.GitHub = new GitHubState();
-
-            if (state.InfraTemplate == null || gitHubClient == null)
-                state.InfraTemplate = new InfrastructureTemplateState();
-
-            return await WhenAll(
-                HasDevOps(),
-                HasDevOpsSetup(),
-                GetEnvironments(),
-                HasInfrastructure(),
-                HasSourceControl(),
-                ListGitHubOrganizations(),
-                ListGitHubOrgRepos()
-            );
-        }
-
-        public virtual async Task<ForgeInfrastructureState> GetEnvironments()
-        {
-            var envs = await prvGraph.ListEnvironments(details.EnterpriseAPIKey);
-
-            if (!envs.IsNullOrEmpty())
+            using (var seClient = devOpsConn.GetClient<ServiceEndpointHttpClient>())
             {
-                state.Environment = envs.FirstOrDefault();
+                var ses = await seClient.GetServiceEndpointsAsync(projectId);
 
-                state.EnvSettings = await prvGraph.GetEnvironmentSettings(details.EnterpriseAPIKey, state.Environment?.Lookup);
-            }
-            else
-            {
-                state.Environment = null;
+                var gitHubCSId = ses?.FirstOrDefault(se => se.Type.ToLower() == "github" && se.Name == $"GitHub {azureSubName}")?.Id.ToString();
 
-                state.EnvSettings = null;
-            }
-
-            return state;
-        }
-
-        public virtual async Task<ForgeInfrastructureState> HasProdConfig(string filesRoot)
-        {
-            var repoName = state.EnvSettings?.Metadata?["GitHubRepository"]?.ToString();
-
-            var repoOrg = state.EnvSettings?.Metadata?["GitHubOrganization"]?.ToString();
-
-            state.ProductionConfigured = false;
-
-            if (!repoOrg.IsNullOrEmpty())
-            {
-                var repo = await gitHubClient.Repository.Get(repoOrg, repoName);
-
-                var repoPath = Path.Combine(filesRoot, $"git\\repos\\{repoOrg}\\{repoName}");
-
-                var repoDir = new DirectoryInfo(repoPath);
-
-                await ensureRepo(repoDir, repo.CloneUrl);
-
-                var envPath = Path.Combine(repoDir.FullName, "environments", state.Environment.Lookup);
-
-                var tmplPath = Path.Combine(envPath, "template.json");
-
-                state.ProductionConfigured = Directory.Exists(envPath);
-            }
-
-            return state;
-        }
-
-        public virtual async Task<ForgeInfrastructureState> HasDevOps()
-        {
-            state.DevOps.Configured = !devOpsToken.IsNullOrEmpty();
-
-            return state;
-        }
-
-        public virtual async Task<ForgeInfrastructureState> HasDevOpsSetup()
-        {
-            var repoName = state.EnvSettings?.Metadata?["GitHubRepository"]?.ToString();
-
-            var repoOrg = state.EnvSettings?.Metadata?["GitHubOrganization"]?.ToString();
-
-            TeamProjectReference project = null;
-
-            if (devOpsConn != null)
-            {
-                using (var projClient = devOpsConn.GetClient<ProjectHttpClient>())
+                if (gitHubCSId.IsNullOrEmpty())
                 {
-                    var projects = await projClient.GetProjects(ProjectState.All);
+                    var ghAccessToken = await idGraph.RetrieveThirdPartyAccessToken(details.EnterpriseAPIKey, details.Username, "GIT-HUB");
 
-                    project = projects.FirstOrDefault(p => p.Name == "LCU OS");
-                }
-            }
-
-            if (project != null)
-            {
-                using (var bldClient = devOpsConn.GetClient<ReleaseHttpClient>())
-                {
-                    var safeEnvName = state.Environment.Lookup.Replace("-", String.Empty);
-
-                    var releases = await bldClient.GetReleaseDefinitionsAsync(project.Id);
-
-                    var name = $"{repoOrg} {repoName}";
-
-                    var release = releases.FirstOrDefault(r => r.Name == name);
-
-                    state.DevOps.Setup = release != null;
-                }
-            }
-            else
-            {
-                state.DevOps.Setup = false;
-            }
-            return state;
-        }
-
-        public virtual async Task<ForgeInfrastructureState> HasInfrastructure()
-        {
-            var envs = await prvGraph.ListEnvironments(details.EnterpriseAPIKey);
-
-
-            state.InfrastructureConfigured = !envs.IsNullOrEmpty() && envs.Any(env =>
-            {
-                var envConfig = prvGraph.GetEnvironment(details.EnterpriseAPIKey, env.Lookup).Result;
-
-                return envConfig != null;
-            });
-
-            return state;
-        }
-
-        public virtual async Task<ForgeInfrastructureState> HasSourceControl()
-        {
-            state.SourceControlConfigured = !gitHubToken.IsNullOrEmpty();
-
-            return state;
-        }
-
-        public virtual async Task<ForgeInfrastructureState> ListGitHubOrganizations()
-        {
-            if (gitHubClient != null)
-            {
-                var orgs = await gitHubClient.Organization.GetAllForCurrent();
-
-                state.GitHub.Organizations = orgs.ToList();
-            }
-            else
-                state.GitHub.Organizations = new List<Octokit.Organization>();
-
-            return state;
-        }
-
-        public virtual async Task<ForgeInfrastructureState> ListGitHubOrgRepos()
-        {
-            if (gitHubClient != null && !state.GitHub.SelectedOrg.IsNullOrEmpty())
-            {
-                var repos = await gitHubClient.Repository.GetAllForOrg(state.GitHub.SelectedOrg);
-
-                state.GitHub.OrgRepos = repos.ToList();
-            }
-            else
-                state.GitHub.OrgRepos = new List<Octokit.Repository>();
-
-            return state;
-        }
-
-        public virtual async Task<ForgeInfrastructureState> LoadInfrastructureRepository(string filesRoot)
-        {
-            var repoName = state.EnvSettings?.Metadata?["GitHubRepository"]?.ToString();
-
-            var repoOrg = state.EnvSettings?.Metadata?["GitHubOrganization"]?.ToString();
-
-            state.InfraTemplate.Options = new List<string>();
-
-            if (!repoOrg.IsNullOrEmpty())
-            {
-                var repo = await gitHubClient.Repository.Get(repoOrg, repoName);
-
-                var repoPath = Path.Combine(filesRoot, $"git\\repos\\{repoOrg}\\{repoName}");
-
-                var repoDir = new DirectoryInfo(repoPath);
-
-                await ensureRepo(repoDir, repo.CloneUrl);
-
-                var topLevelDirs = repoDir.GetDirectories();
-
-                var modulesDir = topLevelDirs.FirstOrDefault(d => d.Name == "modules");
-
-                //  TODO:  Load Modules into state
-
-                var templatesDir = topLevelDirs.FirstOrDefault(d => d.Name == "templates");
-
-                var templateFiles = templatesDir.GetFiles("*", SearchOption.AllDirectories);
-
-                state.InfraTemplate.Options = templateFiles.Select(tf =>
-                {
-                    return tf.DirectoryName.Replace(templatesDir.FullName, String.Empty).Trim('\\');
-                }).ToList();
-            }
-
-            return state;
-        }
-
-        public virtual async Task<ForgeInfrastructureState> SetSelectedInfrastructureTemplate(string template)
-        {
-            state.InfraTemplate.SelectedTemplate = template;
-
-            return state;
-        }
-
-        public virtual async Task<ForgeInfrastructureState> SetSelectedOrg(string org)
-        {
-            state.GitHub.SelectedOrg = org;
-
-            return state;
-        }
-
-        public virtual async Task<ForgeInfrastructureState> SetSetupStep(ForgeInfrastructureSetupStepTypes? step)
-        {
-            state.SetupStep = step;
-
-            return state;
-        }
-        #endregion
-
-        #region Helpers
-        protected virtual async Task checkoutAndSync(string repoPath, LibGit2Sharp.Handlers.CredentialsHandler credsProvider)
-        {
-            using (var gitRepo = new LibGit2Sharp.Repository(repoPath))
-            {
-                LibGit2Sharp.Commands.Checkout(gitRepo, gitRepo.Branches["master"]);
-
-                var author = await loadGitHubSignature();
-
-                LibGit2Sharp.Commands.Pull(gitRepo, author, new LibGit2Sharp.PullOptions()
-                {
-                    FetchOptions = new LibGit2Sharp.FetchOptions()
+                    var ghSE = await seClient.CreateServiceEndpointAsync(projectId, new ServiceEndpoint()
                     {
-                        CredentialsProvider = credsProvider
-                    }
-                });
-            }
-        }
+                        Authorization = new EndpointAuthorization()
+                        {
+                            Parameters = new Dictionary<string, string>()
+                            {
+                                { "AccessToken", ghAccessToken }
+                            },
+                            Scheme = "Token"
+                        },
+                        Data = new Dictionary<string, string>()
+                        {
+                            { "AvatarUrl", "http://fathym.com/" }  //   TODO:  HOw to get this?
+                        },
+                        Name = $"GitHub {azureSubName}",
+                        Type = "github",
+                        Url = new Uri("https://github.com")
+                    });
 
-        protected virtual async Task commitAndSync(string message, string repoPath, LibGit2Sharp.Handlers.CredentialsHandler credsProvider)
-        {
-            using (var gitRepo = new LibGit2Sharp.Repository(repoPath))
-            {
-                var author = await loadGitHubSignature();
+                    gitHubCSId = ghSE?.Id.ToString();
+                }
 
-                Commands.Stage(gitRepo, "*");
+                endpoints["github"] = gitHubCSId;
 
-                if (gitRepo.RetrieveStatus().IsDirty)
-                    gitRepo.Commit(message, author, author, new LibGit2Sharp.CommitOptions());
+                var azureRMCSId = ses?.FirstOrDefault(se => se.Type.ToLower() == "azurerm" && se.Name == $"Azure {azureSubName}")?.Id.ToString();
 
-                var remote = gitRepo.Network.Remotes["origin"];
-
-                var pushRefSpec = $"refs/heads/master";
-
-                gitRepo.Network.Push(remote, pushRefSpec, new PushOptions()
+                if (azureRMCSId.IsNullOrEmpty())
                 {
-                    CredentialsProvider = credsProvider
-                });
+                    var se = await seClient.CreateServiceEndpointAsync(projectId, new ServiceEndpoint()
+                    {
+                        Authorization = new EndpointAuthorization()
+                        {
+                            Parameters = new Dictionary<string, string>()
+                            {
+                                { "authenticationType", "spnKey" },
+                                { "serviceprincipalid", state.EnvSettings.Metadata["AzureAppID"].ToString() },
+                                { "serviceprincipalkey", state.EnvSettings.Metadata["AzureAppAuthKey"].ToString() },
+                                { "tenantid", state.EnvSettings.Metadata["AzureTenantID"].ToString() }
+                            },
+                            Scheme = "ServicePrincipal"
+                        },
+                        Data = new Dictionary<string, string>()
+                        {
+                            { "environment", "AzureCloud" },
+                            { "scopeLevel", "Subscription" },
+                            { "subscriptionName", azureSubName },
+                            { "subscriptionId", state.EnvSettings.Metadata["AzureSubID"].ToString() }
+                        },
+                        Name = $"Azure {azureSubName}",
+                        Type = "azurerm",
+                        Url = new Uri("https://management.azure.com/")
+                    });
+
+                    azureRMCSId = se?.Id.ToString();
+                }
+
+                endpoints["azurerm"] = azureRMCSId;
             }
+
+            return endpoints;
         }
 
         protected virtual async Task ensureRepo(DirectoryInfo repoDir, string cloneUrl)
@@ -916,6 +1064,78 @@ namespace LCU.State.API.Forge.Infrastructure.Harness
                 ClientId = state.EnvSettings.Metadata["AzureAppID"].ToString(),
                 ClientSecret = state.EnvSettings.Metadata["AzureAppAuthKey"].ToString()
             }, state.EnvSettings.Metadata["AzureTenantID"].ToString(), AzureEnvironment.AzureGlobalCloud);
+        }
+
+        protected virtual async Task<TeamProjectReference> getOrCreateDevOpsProject()
+        {
+            TeamProjectReference project = null;
+
+            using (var projClient = devOpsConn.GetClient<ProjectHttpClient>())
+            {
+                var projects = await projClient.GetProjects(ProjectState.All);
+
+                project = projects.FirstOrDefault(p => p.Name == "LCU OS");
+
+                if (project == null)
+                {
+                    var createRef = await projClient.QueueCreateProject(new TeamProject()
+                    {
+                        Name = "LCU OS",
+                        Description = "Dev Ops automation and integrations for Low Code Units",
+                        Capabilities = new Dictionary<string, Dictionary<string, string>>
+                    {
+                        {
+                            "versioncontrol", new Dictionary<string, string>()
+                            {
+                                { "sourceControlType", "Git"}
+                            }
+                        },
+                        {
+                            "processTemplate", new Dictionary<string, string>()
+                            {
+                                { "templateTypeId", "6b724908-ef14-45cf-84f8-768b5384da45"}
+                            }
+                        }
+                    },
+                        Visibility = ProjectVisibility.Private
+                    });
+                }
+
+                while (project == null || project.State == ProjectState.CreatePending)
+                {
+                    projects = await projClient.GetProjects(ProjectState.All);
+
+                    project = projects.FirstOrDefault(p => p.Name == "LCU OS");
+
+                    await Task.Delay(100);
+                }
+            }
+
+            return project;
+        }
+
+        protected virtual async Task<Octokit.Repository> getOrCreateRepository(string repoOrg, string repoName)
+        {
+            Octokit.Repository repo = null;
+
+            try
+            {
+                repo = await gitHubClient.Repository.Get(repoOrg, repoName);
+            }
+            catch (Octokit.NotFoundException nfex)
+            { }
+
+            if (repo == null)
+            {
+                var newRepo = new Octokit.NewRepository(repoName)
+                {
+                    LicenseTemplate = "mit"
+                };
+
+                repo = await gitHubClient.Repository.Create(repoOrg, newRepo);
+            }
+
+            return repo;
         }
 
         protected virtual LibGit2Sharp.Handlers.CredentialsHandler loadCredHandler()

@@ -15,27 +15,24 @@ namespace LCU.State.API.Forge.Infrastructure
 {
     [Serializable]
     [DataContract]
-    public class CommitInfrastructureRequest
+    public class SetupApplicationSeedRequest
     {
+        [DataMember]
+        public virtual string Seed { get; set; }
     }
 
-    public static class CommitInfrastructure
+    public static class SetupApplicationSeed
     {
-        [FunctionName("CommitInfrastructure")]
+        [FunctionName("SetupApplicationSeed")]
         public static async Task<IActionResult> Run(
-            [HttpTrigger(AuthorizationLevel.Admin, "post", Route = null)] HttpRequest req,
-            ILogger log, ExecutionContext context)
+            [HttpTrigger(AuthorizationLevel.Admin, "get", "post", Route = null)] HttpRequest req,
+            ILogger log)
         {
-            return await req.Manage<CommitInfrastructureRequest, ForgeInfrastructureState, ForgeInfrastructureStateHarness>(log, async (mgr, reqData) =>
+            return await req.Manage<SetupApplicationSeedRequest, ForgeInfrastructureState, ForgeInfrastructureStateHarness>(log, async (mgr, reqData) =>
             {
-                await mgr.CommitInfrastructure(context.FunctionDirectory);
-
-                await mgr.Ensure();
-
-                await mgr.HasProdConfig(context.FunctionDirectory);
+                await mgr.SetupAppSeed(reqData.Seed);
 
                 return await mgr.WhenAll(
-                    mgr.LoadInfrastructureRepository(context.FunctionDirectory)
                 );
             });
         }
