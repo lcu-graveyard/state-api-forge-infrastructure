@@ -275,7 +275,13 @@ namespace LCU.State.API.Forge.Infrastructure.Harness
 
             var appSeed = state.AppSeed.Options.FirstOrDefault(o => o.Lookup == state.AppSeed.SelectedSeed);
 
+            var repoFullName = $"{repoOrg}/{repoName}";
+
+            log.LogInformation($"Getting or creationg repository {repoFullName}");
+
             var appRepo = await getOrCreateRepository(repoOrg, repoName);
+
+            log.LogInformation($"Repository {appRepo?.Name}");
 
             //  TODO:  Create Build and Release
 
@@ -284,6 +290,8 @@ namespace LCU.State.API.Forge.Infrastructure.Harness
             var repoDir = new DirectoryInfo(repoPath);
 
             await ensureRepo(repoDir, appRepo.CloneUrl);
+
+            log.LogInformation($"Repository {repoDir.FullName} ensured");
 
             var npmInfo = new ProcessStartInfo
             {
@@ -300,6 +308,8 @@ namespace LCU.State.API.Forge.Infrastructure.Harness
 
             npmInfo.Environment.Add("HOMEPATH", usersHomePath.TrimStart(usersHomeDrive.ToArray()));
 
+            log.LogInformation($"Executing commands...");
+
             var npm = System.Diagnostics.Process.Start(npmInfo);
 
             npm.StandardInput.WriteLine("npm i @lcu/cli@latest -g");
@@ -315,6 +325,8 @@ namespace LCU.State.API.Forge.Infrastructure.Harness
             npm.StandardInput.WriteLine($"lcu proj {projName} --template={lcuTemplate}");
 
             npm.StandardInput.WriteLine($"exit");
+
+            log.LogInformation($"Commands executed");
 
             // var npm = System.Diagnostics.Process.Start(npmInfo);
 
