@@ -65,6 +65,8 @@ namespace LCU.State.API.Forge.Infrastructure.Harness
     public class ForgeInfrastructureStateHarness : LCUStateHarness<ForgeInfrastructureState>
     {
         #region Fields
+        protected readonly string cmdExePath;
+
         protected readonly string devOpsToken;
 
         protected readonly VssConnection devOpsConn;
@@ -86,6 +88,8 @@ namespace LCU.State.API.Forge.Infrastructure.Harness
         public ForgeInfrastructureStateHarness(HttpRequest req, ILogger log, ForgeInfrastructureState state)
             : base(req, log, state)
         {
+            cmdExePath = System.Environment.GetEnvironmentVariable("CMD-EXE-PATH") ?? "cmd";
+
             idGraph = req.LoadGraph<IDGraph>(log);
 
             prvGraph = req.LoadGraph<PrvGraph>(log);
@@ -293,56 +297,100 @@ namespace LCU.State.API.Forge.Infrastructure.Harness
 
             log.LogInformation($"Repository {repoDir.FullName} ensured");
 
-            var npmInfo = new ProcessStartInfo
-            {
-                FileName = "cmd",
-                RedirectStandardInput = true,
-                WorkingDirectory = repoPath
-            };
-
             var usersHomePath = Path.Combine(filesRoot, @"Users\Home");
 
             var usersHomeDrive = Path.GetPathRoot(usersHomePath).TrimEnd('\\');
 
-            npmInfo.Environment.Add("HOMEDRIVE", usersHomeDrive);
+            var lineCount = 0;
 
-            npmInfo.Environment.Add("HOMEPATH", usersHomePath.TrimStart(usersHomeDrive.ToArray()));
+            var npm = new System.Diagnostics.Process();
+
+            log.LogInformation($"Command path: {cmdExePath}");
+
+            npm.StartInfo.CreateNoWindow = true;
+
+            npm.StartInfo.Environment.Add("HOMEDRIVE", usersHomeDrive);
+
+            npm.StartInfo.Environment.Add("HOMEPATH", usersHomePath.TrimStart(usersHomeDrive.ToArray()));
+
+            npm.StartInfo.FileName = cmdExePath;
+
+            npm.StartInfo.RedirectStandardInput = true;
+
+            npm.StartInfo.RedirectStandardError = true;
+
+            npm.StartInfo.RedirectStandardOutput = true;
+
+            npm.StartInfo.UseShellExecute = false;
+
+            npm.StartInfo.WorkingDirectory = repoPath;
+
+            npm.EnableRaisingEvents = true;
+
+            npm.ErrorDataReceived += (sender, e) =>
+            {
+                if (!String.IsNullOrEmpty(e.Data))
+                {
+                    lineCount++;
+
+                    log.LogInformation($"[{lineCount}]: {e.Data}");
+                }
+            };
+
+            npm.OutputDataReceived += (sender, e) =>
+            {
+                // Prepend line numbers to each line of the output.
+                if (!String.IsNullOrEmpty(e.Data))
+                {
+                    lineCount++;
+
+                    log.LogInformation($"[{lineCount}]: {e.Data}");
+                }
+            };
 
             log.LogInformation($"Executing commands...");
 
-            var npm = System.Diagnostics.Process.Start(npmInfo);
+            // npm.StandardInput.WriteLine("npm i @angular/cli@7.3.9 -g");
 
-            npm.StandardInput.WriteLine("npm i @lcu/cli@latest -g");
+            // npm.StandardInput.WriteLine("npm i @lcu/cli@latest -g");
 
-            npm.StandardInput.WriteLine("npm i @angular/cli@7.3.9");
+            // npm.StandardInput.WriteLine($"lcu init --workspace={repoName} --scope=@{repoOrg}");
 
-            npm.StandardInput.WriteLine($"lcu init --workspace={repoName} --scope=@{repoOrg}");
+            // var lcuTemplate = state.AppSeed.SelectedSeed == "Angular" ? "Default" : "LCU";
 
-            var lcuTemplate = state.AppSeed.SelectedSeed == "Angular" ? "Default" : "LCU";
+            // var projName = state.AppSeed.SelectedSeed == "Angular" ? name : "lcu";
 
-            var projName = state.AppSeed.SelectedSeed == "Angular" ? name : "lcu";
+            // npm.StandardInput.WriteLine($"lcu proj {projName} --template={lcuTemplate}");
 
-            npm.StandardInput.WriteLine($"lcu proj {projName} --template={lcuTemplate}");
+            appSeed.Commands.ForEach(command =>
+            {
+                lineCount = 0;
 
-            npm.StandardInput.WriteLine($"exit");
+                npm.Start();
+
+                npm.BeginOutputReadLine();
+
+                npm.BeginErrorReadLine();
+
+                var runCmd = command
+                    .Replace("{{repoName}}", repoName)
+                    .Replace("{{repoOrg}}", repoOrg)
+                    .Replace("{{projName}}", name);
+
+                log.LogInformation($"Executing command {runCmd}");
+
+                npm.StandardInput.WriteLine(runCmd);
+
+                npm.StandardInput.WriteLine($"exit");
+
+                npm.WaitForExit();
+
+                npm.CancelErrorRead();
+
+                npm.CancelOutputRead();
+            });
 
             log.LogInformation($"Commands executed");
-
-            // var npm = System.Diagnostics.Process.Start(npmInfo);
-
-            // appSeed.Commands.ForEach(command =>
-            // {
-            //     var runCmd = command
-            //         .Replace("{{repoName}}", repoName)
-            //         .Replace("{{repoOrg}}", repoOrg)
-            //         .Replace("{{projName}}", name);
-
-            //     npm.StandardInput.WriteLine(runCmd);
-            // });
-
-            // npm.StandardInput.WriteLine($"exit");
-
-            npm.WaitForExit();
 
             var credsProvider = loadCredHandler();
 
@@ -595,7 +643,7 @@ namespace LCU.State.API.Forge.Infrastructure.Harness
                         var appSeed = rdr.ReadToEnd().FromJSON<InfrastructureApplicationSeedOption>();
 
                         appSeed.Lookup = lookup;
-                        
+
                         return appSeed;
                     }
                 }).ToList();
