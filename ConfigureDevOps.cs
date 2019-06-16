@@ -18,6 +18,11 @@ namespace LCU.State.API.Forge.Infrastructure
     [DataContract]
     public class ConfigureDevOpsRequest
     {
+        [DataMember]
+        public virtual string NPMAccessToken { get; set; }
+        
+        [DataMember]
+        public virtual string NPMRegistry { get; set; }
     }
 
     public static class ConfigureDevOps
@@ -29,7 +34,7 @@ namespace LCU.State.API.Forge.Infrastructure
         {
             return await req.Manage<ConfigureDevOpsRequest, ForgeInfrastructureState, ForgeInfrastructureStateHarness>(log, async (mgr, reqData) =>
             {
-                await mgr.ConfigureDevOps();
+                await mgr.ConfigureDevOps(reqData.NPMRegistry, reqData.NPMAccessToken);
 
                 return await mgr.WhenAll(
                     mgr.Ensure()

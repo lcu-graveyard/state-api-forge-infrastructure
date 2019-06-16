@@ -55,6 +55,12 @@ namespace LCU.State.API.Forge.Infrastructure.Models
         public virtual bool Configured { get; set; }
 
         [DataMember]
+        public virtual string NPMAccessToken { get; set; }
+
+        [DataMember]
+        public virtual string NPMRegistry { get; set; }
+
+        [DataMember]
         public virtual bool Setup { get; set; }
     }
 
@@ -82,6 +88,22 @@ namespace LCU.State.API.Forge.Infrastructure.Models
     }
 
     [DataContract]
+    public class InfrastructureApplicationSeedState
+    {
+        [DataMember]
+        public virtual bool Created { get; set; }
+
+        [DataMember]
+        public virtual string NewName { get; set; }
+
+        [DataMember]
+        public virtual List<InfrastructureApplicationSeedOption> Options { get; set; }
+
+        [DataMember]
+        public virtual string SelectedSeed { get; set; }
+    }
+
+    [DataContract]
     public class InfrastructureApplicationSeedOption
     {
         [DataMember]
@@ -100,23 +122,10 @@ namespace LCU.State.API.Forge.Infrastructure.Models
         public virtual string Name { get; set; }
 
         [DataMember]
+        public virtual string ReleasePackageSuffix { get; set; }
+
+        [DataMember]
         public virtual InfrastructureApplicationSeedFork SeedFork { get; set; }
-    }
-
-    [DataContract]
-    public class InfrastructureApplicationSeedState
-    {
-        [DataMember]
-        public virtual bool Created { get; set; }
-
-        [DataMember]
-        public virtual string NewName { get; set; }
-
-        [DataMember]
-        public virtual List<InfrastructureApplicationSeedOption> Options { get; set; }
-
-        [DataMember]
-        public virtual string SelectedSeed { get; set; }
     }
 
     [DataContract]
