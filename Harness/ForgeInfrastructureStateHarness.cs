@@ -1239,6 +1239,10 @@ namespace LCU.State.API.Forge.Infrastructure.Harness
 
                     if (npmRcId.IsNullOrEmpty())
                     {
+                        await idGraph.SetThirdPartyAccessToken(details.EnterpriseAPIKey, details.Username, "NPM-RC-REGISTRY", state.DevOps.NPMRegistry);
+
+                        await idGraph.SetThirdPartyAccessToken(details.EnterpriseAPIKey, details.Username, "NPM-RC-TOKEN", state.DevOps.NPMAccessToken);
+
                         var se = await seClient.CreateServiceEndpointAsync(projectId, new Microsoft.VisualStudio.Services.ServiceEndpoints.WebApi.ServiceEndpoint()
                         {
                             Authorization = new Microsoft.VisualStudio.Services.ServiceEndpoints.WebApi.EndpointAuthorization()
@@ -2416,9 +2420,11 @@ namespace LCU.State.API.Forge.Infrastructure.Harness
 
                 var npm = new System.Diagnostics.Process();
 
-                log.LogInformation($"Command path: {cmdExePath}");
-
                 npm.StartInfo.CreateNoWindow = true;
+
+                log.LogInformation($"Command EXE: {cmdExePath}");
+
+                log.LogInformation($"Command PATH variable: {cmdPathVariable}");
 
                 if (!cmdPathVariable.IsNullOrEmpty())
                     npm.StartInfo.Environment["Path"] = cmdPathVariable;
