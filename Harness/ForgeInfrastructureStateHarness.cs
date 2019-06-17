@@ -128,6 +128,16 @@ namespace LCU.State.API.Forge.Infrastructure.Harness
                 new DelegatingHandler[] {
                     new VssOAuthHandler(devOpsToken)
                 });
+
+                bldClient = devOpsConn.GetClient<BuildHttpClient>();
+
+                rlsClient = devOpsConn.GetClient<ReleaseHttpClient>();
+
+                projClient = devOpsConn.GetClient<ProjectHttpClient>();
+
+                taskClient = devOpsConn.GetClient<TaskAgentHttpClient>();
+
+                seClient = devOpsConn.GetClient<ServiceEndpointHttpClient>();
             }
 
             gitHubToken = idGraph.RetrieveThirdPartyAccessToken(details.EnterpriseAPIKey, details.Username, "GIT-HUB").Result;
@@ -155,16 +165,6 @@ namespace LCU.State.API.Forge.Infrastructure.Harness
                 gitHubClient.Credentials = tokenAuth;
             }
 
-            bldClient = devOpsConn.GetClient<BuildHttpClient>();
-
-            rlsClient = devOpsConn.GetClient<ReleaseHttpClient>();
-
-            projClient = devOpsConn.GetClient<ProjectHttpClient>();
-
-            taskClient = devOpsConn.GetClient<TaskAgentHttpClient>();
-
-            seClient = devOpsConn.GetClient<ServiceEndpointHttpClient>();
-
             container = "Default";
 
             ideGraph = req.LoadGraph<IDEGraph>(log);
@@ -172,21 +172,6 @@ namespace LCU.State.API.Forge.Infrastructure.Harness
         #endregion
 
         #region API Methods
-        public override void Dispose()
-        {
-            devOpsConn.Dispose();
-
-            bldClient.Dispose();
-
-            rlsClient.Dispose();
-
-            projClient.Dispose();
-
-            taskClient.Dispose();
-
-            seClient.Dispose();
-        }
-
         public virtual async Task<ForgeInfrastructureState> CommitInfrastructure(string filesRoot)
         {
             var repoName = state.EnvSettings?.Metadata?["GitHubRepository"]?.ToString();
@@ -322,8 +307,6 @@ namespace LCU.State.API.Forge.Infrastructure.Harness
 
             buildDef = await bldClient.CreateDefinitionAsync(buildDef);
 
-            await startBuildAndWait(project, buildDef);
-
             var safeEnvName = state.Environment.Lookup.Replace("-", String.Empty);
 
             var tasks = new List<WorkflowTask>()
@@ -416,19 +399,42 @@ namespace LCU.State.API.Forge.Infrastructure.Harness
         {
             var repoOrg = state.EnvSettings?.Metadata?["GitHubOrganization"]?.ToString();
 
-            var repoName = name.ToLower();//(state.AppSeed.SelectedSeed == "Angular" ? name : $"lcu-{name}").ToLower();
+            var repoName = name.ToLower();
+
+            //  TODO - Support configured prefix for name inside the AppSeedOption config
+            //(state.AppSeed.SelectedSeed == "Angular" ? name : $"lcu-{name}").ToLower();
 
             var appSeed = state.AppSeed.Options.FirstOrDefault(o => o.Lookup == state.AppSeed.SelectedSeed);
 
             var project = await getOrCreateDevOpsProject();
 
-            var buildDef = await ensureBuildForAppSeed(project, repoOrg, repoName);
+            await ensureInfrastructureIsBuilt(project, repoOrg);
 
-            await seedRepo(filesRoot, project, buildDef, appSeed, repoOrg, repoName);
+            var appSeedBuildDef = await ensureBuildForAppSeed(project, repoOrg, repoName);
+
+            await seedRepo(filesRoot, project, appSeedBuildDef, appSeed, repoOrg, repoName);
 
             await configureForge(repoOrg, repoName, appSeed.ReleasePackageSuffix);
 
             return state;
+        }
+
+        public override void Dispose()
+        {
+            if (devOpsConn != null)
+            {
+                devOpsConn.Dispose();
+
+                bldClient.Dispose();
+
+                rlsClient.Dispose();
+
+                projClient.Dispose();
+
+                taskClient.Dispose();
+
+                seClient.Dispose();
+            }
         }
 
         public virtual async Task<ForgeInfrastructureState> Ensure()
@@ -754,7 +760,7 @@ namespace LCU.State.API.Forge.Infrastructure.Harness
                 IsPrivate = false,
                 IsReadOnly = false,
                 Name = repoName,
-                PathRegex = $"/{repoName}*",
+                PathRegex = $"/{repoOrg}/{repoName}*",
                 Priority = 25000
             });
 
@@ -762,7 +768,7 @@ namespace LCU.State.API.Forge.Infrastructure.Harness
             {
                 ApplicationID = app.ID,
                 Priority = 1000,
-                BaseHref = $"/{repoName}/",
+                BaseHref = $"/{repoOrg}/{repoName}/",
                 NPMPackage = $"@{repoOrg}/{repoName}{releaseSuffix ?? String.Empty}",
                 PackageVersion = "latest"
             };
@@ -932,15 +938,15 @@ namespace LCU.State.API.Forge.Infrastructure.Harness
                 {
                     new ReleaseDefinitionEnvironment()
                     {
-                        // Conditions = new List<Condition>()
-                        // {
-                        //     new Condition()
-                        //     {
-                        //         ConditionType= ConditionType.Event,
-                        //         Name = "ReleaseStarted",
-                        //         Value = String.Empty
-                        //     }
-                        // },
+                        Conditions = new List<Condition>()
+                        {
+                            new Condition()
+                            {
+                                ConditionType= ConditionType.Event,
+                                Name = "ReleaseStarted",
+                                Value = String.Empty
+                            }
+                        },
                         Name = "Production",
                         PostDeployApprovals = new ReleaseDefinitionApprovals()
                         {
@@ -1260,6 +1266,22 @@ namespace LCU.State.API.Forge.Infrastructure.Harness
             tasks.WhenAll();
 
             return endpoints;
+        }
+
+        protected virtual async Task ensureInfrastructureIsBuilt(TeamProjectReference project, string repoOrg)
+        {
+            var repoName = state.EnvSettings?.Metadata?["GitHubRepository"]?.ToString();
+
+            var buildDefs = await bldClient.GetDefinitionsAsync(project.Id.ToString());
+
+            var buildDef = buildDefs.FirstOrDefault(bd => bd.Name == $"{repoOrg} {repoName}");
+
+            if (buildDef != null)
+            {
+                await startBuildAndWait(project, buildDef);
+
+                // await startDep(project, buildDef);
+            }
         }
 
         protected virtual async Task ensureRepo(DirectoryInfo repoDir, string cloneUrl)
