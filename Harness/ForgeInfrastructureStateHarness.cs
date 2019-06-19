@@ -72,17 +72,17 @@ namespace LCU.State.API.Forge.Infrastructure.Harness
     public class ForgeInfrastructureStateHarness : LCUStateHarness<ForgeInfrastructureState>
     {
         #region Fields
-        protected readonly BuildHttpClient bldClient;
+        protected BuildHttpClient bldClient;
 
         protected readonly string container;
 
-        protected readonly ReleaseHttpClient rlsClient;
+        protected ReleaseHttpClient rlsClient;
 
-        protected readonly ProjectHttpClient projClient;
+        protected ProjectHttpClient projClient;
 
-        protected readonly TaskAgentHttpClient taskClient;
+        protected TaskAgentHttpClient taskClient;
 
-        protected readonly ServiceEndpointHttpClient seClient;
+        protected ServiceEndpointHttpClient seClient;
 
         protected readonly string cmdExePath;
 
@@ -93,9 +93,9 @@ namespace LCU.State.API.Forge.Infrastructure.Harness
 
         protected readonly VssConnection devOpsConn;
 
-        protected readonly Octokit.GitHubClient gitHubClient;
+        protected Octokit.GitHubClient gitHubClient;
 
-        protected readonly string gitHubToken;
+        protected string gitHubToken;
 
         protected readonly IDGraph idGraph;
 
@@ -130,40 +130,52 @@ namespace LCU.State.API.Forge.Infrastructure.Harness
                     new VssOAuthHandler(devOpsToken)
                 });
 
-                bldClient = devOpsConn.GetClient<BuildHttpClient>();
+                Parallel.Invoke(new List<Action>() {
+                    () => {
+                        bldClient = devOpsConn.GetClient<BuildHttpClient>();
+                    },
+                    () => {
+                        bldClient = devOpsConn.GetClient<BuildHttpClient>();
+                    },
+                    () => {
+                        rlsClient = devOpsConn.GetClient<ReleaseHttpClient>();
+                    },
+                    () => {
+                        projClient = devOpsConn.GetClient<ProjectHttpClient>();
+                    },
+                    () => {
+                        taskClient = devOpsConn.GetClient<TaskAgentHttpClient>();
+                    },
+                    () => {
+                        seClient = devOpsConn.GetClient<ServiceEndpointHttpClient>();
+                    },
+                    () => {
+                        gitHubToken = idGraph.RetrieveThirdPartyAccessToken(details.EnterpriseAPIKey, details.Username, "GIT-HUB").Result;
 
-                rlsClient = devOpsConn.GetClient<ReleaseHttpClient>();
+                        if (!gitHubToken.IsNullOrEmpty())
+                        {
+                            //  TODO:  Investigate and re-enable GitHub API Caching and eTag handling for Rate Limiting purposes
 
-                projClient = devOpsConn.GetClient<ProjectHttpClient>();
+                            // var client = new Octokit.Caching.CachingHttpClient(new Octokit.Internal.HttpClientAdapter(() => Octokit.Internal.HttpMessageHandlerFactory.CreateDefault(new WebProxy())), 
+                            //     new Octokit.Caching.NaiveInMemoryCache());
 
-                taskClient = devOpsConn.GetClient<TaskAgentHttpClient>();
+                            // var connection = new Octokit.Connection(
+                            //     new Octokit.ProductHeaderValue("LCU-STATE-API-FORGE-INFRASTRUCTURE"),
+                            //     Octokit.GitHubClient.GitHubApiUrl,
+                            //     new Octokit.Internal.InMemoryCredentialStore(new Octokit.Credentials(gitHubToken)),
+                            //     client,
+                            //     new Octokit.Internal.SimpleJsonSerializer());
 
-                seClient = devOpsConn.GetClient<ServiceEndpointHttpClient>();
-            }
+                            // gitHubClient = new Octokit.GitHubClient(connection);
 
-            gitHubToken = idGraph.RetrieveThirdPartyAccessToken(details.EnterpriseAPIKey, details.Username, "GIT-HUB").Result;
+                            gitHubClient = new Octokit.GitHubClient(new Octokit.ProductHeaderValue("LCU-STATE-API-FORGE-INFRASTRUCTURE"));
 
-            if (!gitHubToken.IsNullOrEmpty())
-            {
-                //  TODO:  Investigate and re-enable GitHub API Caching and eTag handling for Rate Limiting purposes
+                            var tokenAuth = new Octokit.Credentials(gitHubToken);
 
-                // var client = new Octokit.Caching.CachingHttpClient(new Octokit.Internal.HttpClientAdapter(() => Octokit.Internal.HttpMessageHandlerFactory.CreateDefault(new WebProxy())), 
-                //     new Octokit.Caching.NaiveInMemoryCache());
-
-                // var connection = new Octokit.Connection(
-                //     new Octokit.ProductHeaderValue("LCU-STATE-API-FORGE-INFRASTRUCTURE"),
-                //     Octokit.GitHubClient.GitHubApiUrl,
-                //     new Octokit.Internal.InMemoryCredentialStore(new Octokit.Credentials(gitHubToken)),
-                //     client,
-                //     new Octokit.Internal.SimpleJsonSerializer());
-
-                // gitHubClient = new Octokit.GitHubClient(connection);
-
-                gitHubClient = new Octokit.GitHubClient(new Octokit.ProductHeaderValue("LCU-STATE-API-FORGE-INFRASTRUCTURE"));
-
-                var tokenAuth = new Octokit.Credentials(gitHubToken);
-
-                gitHubClient.Credentials = tokenAuth;
+                            gitHubClient.Credentials = tokenAuth;
+                        }
+                    }
+                }.ToArray());
             }
 
             container = "Default";
@@ -428,10 +440,10 @@ namespace LCU.State.API.Forge.Infrastructure.Harness
             {
                 var mgr = (TMgr)m;
 
-				using (mgr)
-				{
-					var rslt = action(mgr, default(TArgs)).Result;
-				}
+                using (mgr)
+                {
+                    var rslt = action(mgr, default(TArgs)).Result;
+                }
             }).Run();
         }
 
