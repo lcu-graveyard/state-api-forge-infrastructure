@@ -5,7 +5,7 @@
     <RootNamespace>state_api_forge_infrastructure</RootNamespace>
   </PropertyGroup>
   <ItemGroup>
-    <PackageReference Include="LCU.Runtime" Version="1.0.19165.1-prerelease" />
+    <PackageReference Include="LCU.Runtime" Version="1.0.19170.4-prerelease" />
     <PackageReference Include="LibGit2Sharp" Version="0.26.0" />
     <PackageReference Include="Microsoft.Azure.Management.Fluent" Version="1.22.2" />
     <PackageReference Include="Microsoft.Azure.Management.ResourceManager.Fluent" Version="1.22.2" />

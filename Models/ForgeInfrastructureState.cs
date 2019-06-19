@@ -91,16 +91,17 @@ namespace LCU.State.API.Forge.Infrastructure.Models
     public class InfrastructureApplicationSeedState
     {
         [DataMember]
-        public virtual bool Created { get; set; }
-
-        [DataMember]
         public virtual string NewName { get; set; }
-
+    
         [DataMember]
         public virtual List<InfrastructureApplicationSeedOption> Options { get; set; }
 
         [DataMember]
         public virtual string SelectedSeed { get; set; }
+    
+        [DataMember]
+        [JsonConverter(typeof(StringEnumConverter))]
+        public virtual ForgeInfrastructureApplicationSeedStepTypes? Step { get; set; }
     }
 
     [DataContract]
@@ -149,5 +150,15 @@ namespace LCU.State.API.Forge.Infrastructure.Models
 
         [EnumMember]
         Custom
+    }
+
+    [DataContract]
+    public enum ForgeInfrastructureApplicationSeedStepTypes
+    {
+        [EnumMember]
+        Creating,
+
+        [EnumMember]
+        Created
     }
 }

@@ -44,6 +44,7 @@ using System.Threading;
 using System.Diagnostics;
 using System.Net;
 using Microsoft.TeamFoundation.DistributedTask.WebApi;
+using Fathym.Design;
 
 namespace LCU.State.API.Forge.Infrastructure.Harness
 {
@@ -399,8 +400,7 @@ namespace LCU.State.API.Forge.Infrastructure.Harness
         {
             var repoOrg = state.EnvSettings?.Metadata?["GitHubOrganization"]?.ToString();
 
-            var repoName = name.ToLower();
-
+            var repoName = state.AppSeed.NewName = name.ToLower();
             //  TODO - Support configured prefix for name inside the AppSeedOption config
             //(state.AppSeed.SelectedSeed == "Angular" ? name : $"lcu-{name}").ToLower();
 
@@ -409,6 +409,39 @@ namespace LCU.State.API.Forge.Infrastructure.Harness
             var project = await getOrCreateDevOpsProject();
 
             await ensureInfrastructureIsBuilt(project, repoOrg);
+
+            await withOfflineHarness<CreateAppFromSeedRequest, ForgeInfrastructureStateHarness>(async (mgr, reqData) =>
+            {
+                return await mgr.CompleteAppSeedCreation(filesRoot, repoName);
+            });
+
+            state.AppSeed.Step = ForgeInfrastructureApplicationSeedStepTypes.Creating;
+
+            return state;
+        }
+
+        protected override async Task withOfflineHarness<TArgs, TMgr>(Func<TMgr, TArgs, Task<ForgeInfrastructureState>> action)
+        {
+            var offlineHarness = req.Manage<ForgeInfrastructureState, TMgr>(state, log);
+
+            await DesignOutline.Instance.Async().Queue(offlineHarness).SetAction((m) =>
+            {
+                var mgr = (TMgr)m;
+
+				using (mgr)
+				{
+					var rslt = action(mgr, default(TArgs)).Result;
+				}
+            }).Run();
+        }
+
+        public virtual async Task<ForgeInfrastructureState> CompleteAppSeedCreation(string filesRoot, string repoName)
+        {
+            var appSeed = state.AppSeed.Options.FirstOrDefault(o => o.Lookup == state.AppSeed.SelectedSeed);
+
+            var project = await getOrCreateDevOpsProject();
+
+            var repoOrg = state.EnvSettings?.Metadata?["GitHubOrganization"]?.ToString();
 
             var appSeedBuildDef = await ensureBuildForAppSeed(project, repoOrg, repoName);
 
@@ -457,15 +490,15 @@ namespace LCU.State.API.Forge.Infrastructure.Harness
             if (state.InfraTemplate == null || gitHubClient == null)
                 state.InfraTemplate = new InfrastructureTemplateState();
 
-            await HasDevOpsSetup();
+            // await HasDevOpsSetup();
 
             return await WhenAll(
-                HasDevOps(),
-                GetEnvironments(),
-                HasInfrastructure(),
-                HasSourceControl(),
-                ListGitHubOrganizations(),
-                ListGitHubOrgRepos()
+                // HasDevOps(),
+                // GetEnvironments(),
+                // HasInfrastructure(),
+                // HasSourceControl(),
+                // ListGitHubOrganizations(),
+                // ListGitHubOrgRepos()
             );
         }
 
@@ -645,7 +678,7 @@ namespace LCU.State.API.Forge.Infrastructure.Harness
 
                 state.AppSeed.Options = appsFiles.Select(af =>
                 {
-                    var lookup = af.DirectoryName.Replace(templatesDir.FullName, String.Empty).Trim('\\');
+                    var lookup = af.DirectoryName.Replace(appsDir.FullName, String.Empty).Trim('\\');
 
                     using (var rdr = af.OpenText())
                     {
@@ -2496,7 +2529,7 @@ namespace LCU.State.API.Forge.Infrastructure.Harness
 
                 var credsProvider = loadCredHandler();
 
-                await commitAndSync($"Seeding {state.AppSeed.NewName} with {state.AppSeed.SelectedSeed}", repoPath, credsProvider);
+                await commitAndSync($"Seeding with {state.AppSeed.SelectedSeed}", repoPath, credsProvider);
 
                 await startBuildAndWait(project, buildDef);
             }
