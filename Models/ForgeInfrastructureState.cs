@@ -91,6 +91,18 @@ namespace LCU.State.API.Forge.Infrastructure.Models
     public class InfrastructureApplicationSeedState
     {
         [DataMember]
+        public virtual bool AppSeedBuilt { get; set; }
+    
+        [DataMember]
+        public virtual bool AppSeeded { get; set; }
+    
+        [DataMember]
+        public virtual bool HasBuild { get; set; }
+    
+        [DataMember]
+        public virtual bool InfraBuilt { get; set; }
+    
+        [DataMember]
         public virtual string NewName { get; set; }
     
         [DataMember]

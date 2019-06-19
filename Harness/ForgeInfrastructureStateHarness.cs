@@ -72,17 +72,17 @@ namespace LCU.State.API.Forge.Infrastructure.Harness
     public class ForgeInfrastructureStateHarness : LCUStateHarness<ForgeInfrastructureState>
     {
         #region Fields
-        protected BuildHttpClient bldClient;
+        protected readonly BuildHttpClient bldClient;
 
         protected readonly string container;
 
-        protected ReleaseHttpClient rlsClient;
+        protected readonly ReleaseHttpClient rlsClient;
 
-        protected ProjectHttpClient projClient;
+        protected readonly ProjectHttpClient projClient;
 
-        protected TaskAgentHttpClient taskClient;
+        protected readonly TaskAgentHttpClient taskClient;
 
-        protected ServiceEndpointHttpClient seClient;
+        protected readonly ServiceEndpointHttpClient seClient;
 
         protected readonly string cmdExePath;
 
@@ -93,9 +93,9 @@ namespace LCU.State.API.Forge.Infrastructure.Harness
 
         protected readonly VssConnection devOpsConn;
 
-        protected Octokit.GitHubClient gitHubClient;
+        protected readonly Octokit.GitHubClient gitHubClient;
 
-        protected string gitHubToken;
+        protected readonly string gitHubToken;
 
         protected readonly IDGraph idGraph;
 
@@ -130,52 +130,40 @@ namespace LCU.State.API.Forge.Infrastructure.Harness
                     new VssOAuthHandler(devOpsToken)
                 });
 
-                Parallel.Invoke(new List<Action>() {
-                    () => {
-                        bldClient = devOpsConn.GetClient<BuildHttpClient>();
-                    },
-                    () => {
-                        bldClient = devOpsConn.GetClient<BuildHttpClient>();
-                    },
-                    () => {
-                        rlsClient = devOpsConn.GetClient<ReleaseHttpClient>();
-                    },
-                    () => {
-                        projClient = devOpsConn.GetClient<ProjectHttpClient>();
-                    },
-                    () => {
-                        taskClient = devOpsConn.GetClient<TaskAgentHttpClient>();
-                    },
-                    () => {
-                        seClient = devOpsConn.GetClient<ServiceEndpointHttpClient>();
-                    },
-                    () => {
-                        gitHubToken = idGraph.RetrieveThirdPartyAccessToken(details.EnterpriseAPIKey, details.Username, "GIT-HUB").Result;
+                bldClient = devOpsConn.GetClient<BuildHttpClient>();
 
-                        if (!gitHubToken.IsNullOrEmpty())
-                        {
-                            //  TODO:  Investigate and re-enable GitHub API Caching and eTag handling for Rate Limiting purposes
+                rlsClient = devOpsConn.GetClient<ReleaseHttpClient>();
 
-                            // var client = new Octokit.Caching.CachingHttpClient(new Octokit.Internal.HttpClientAdapter(() => Octokit.Internal.HttpMessageHandlerFactory.CreateDefault(new WebProxy())), 
-                            //     new Octokit.Caching.NaiveInMemoryCache());
+                projClient = devOpsConn.GetClient<ProjectHttpClient>();
 
-                            // var connection = new Octokit.Connection(
-                            //     new Octokit.ProductHeaderValue("LCU-STATE-API-FORGE-INFRASTRUCTURE"),
-                            //     Octokit.GitHubClient.GitHubApiUrl,
-                            //     new Octokit.Internal.InMemoryCredentialStore(new Octokit.Credentials(gitHubToken)),
-                            //     client,
-                            //     new Octokit.Internal.SimpleJsonSerializer());
+                taskClient = devOpsConn.GetClient<TaskAgentHttpClient>();
 
-                            // gitHubClient = new Octokit.GitHubClient(connection);
+                seClient = devOpsConn.GetClient<ServiceEndpointHttpClient>();
 
-                            gitHubClient = new Octokit.GitHubClient(new Octokit.ProductHeaderValue("LCU-STATE-API-FORGE-INFRASTRUCTURE"));
+                gitHubToken = idGraph.RetrieveThirdPartyAccessToken(details.EnterpriseAPIKey, details.Username, "GIT-HUB").Result;
 
-                            var tokenAuth = new Octokit.Credentials(gitHubToken);
+                if (!gitHubToken.IsNullOrEmpty())
+                {
+                    //  TODO:  Investigate and re-enable GitHub API Caching and eTag handling for Rate Limiting purposes
 
-                            gitHubClient.Credentials = tokenAuth;
-                        }
-                    }
-                }.ToArray());
+                    // var client = new Octokit.Caching.CachingHttpClient(new Octokit.Internal.HttpClientAdapter(() => Octokit.Internal.HttpMessageHandlerFactory.CreateDefault(new WebProxy())), 
+                    //     new Octokit.Caching.NaiveInMemoryCache());
+
+                    // var connection = new Octokit.Connection(
+                    //     new Octokit.ProductHeaderValue("LCU-STATE-API-FORGE-INFRASTRUCTURE"),
+                    //     Octokit.GitHubClient.GitHubApiUrl,
+                    //     new Octokit.Internal.InMemoryCredentialStore(new Octokit.Credentials(gitHubToken)),
+                    //     client,
+                    //     new Octokit.Internal.SimpleJsonSerializer());
+
+                    // gitHubClient = new Octokit.GitHubClient(connection);
+
+                    gitHubClient = new Octokit.GitHubClient(new Octokit.ProductHeaderValue("LCU-STATE-API-FORGE-INFRASTRUCTURE"));
+
+                    var tokenAuth = new Octokit.Credentials(gitHubToken);
+
+                    gitHubClient.Credentials = tokenAuth;
+                }
             }
 
             container = "Default";
@@ -185,6 +173,65 @@ namespace LCU.State.API.Forge.Infrastructure.Harness
         #endregion
 
         #region API Methods
+        public virtual async Task<ForgeInfrastructureState> AppSeedCompleteCheck(string filesRoot)
+        {
+            var appSeed = state.AppSeed.Options.FirstOrDefault(o => o.Lookup == state.AppSeed.SelectedSeed);
+
+            var project = await getOrCreateDevOpsProject();
+
+            var repoOrg = state.EnvSettings?.Metadata?["GitHubOrganization"]?.ToString();
+
+            var repoName = state.EnvSettings?.Metadata?["GitHubRepository"]?.ToString();
+
+            var repoPath = Path.Combine(filesRoot, $"git\\repos\\{repoOrg}\\{state.AppSeed.NewName}");
+
+            var repoDir = new DirectoryInfo(repoPath);
+
+            var existingDefs = await bldClient.GetDefinitionsAsync(project.Id.ToString());
+
+            var infraBuildDef = existingDefs.FirstOrDefault(bd => bd.Name == $"{repoOrg} {repoName}");
+
+            var infraBuilds = await bldClient.GetBuildsAsync(project.Id.ToString(), new[] { infraBuildDef.Id });
+
+            var infraBuild = infraBuilds.FirstOrDefault();
+
+            state.AppSeed.InfraBuilt = infraBuild.Status == BuildStatus.Completed;
+
+            var appSeedRepo = await getOrCreateRepository(repoOrg, state.AppSeed.NewName);
+
+            await ensureRepo(repoDir, appSeedRepo.CloneUrl);
+
+            var lcuJson = repoDir.GetFiles("lcu.json")?.FirstOrDefault();
+
+            state.AppSeed.AppSeeded = lcuJson != null && lcuJson.Exists;
+
+            var appSeedBuildDef = existingDefs.FirstOrDefault(bd => bd.Name == $"{repoOrg} {state.AppSeed.NewName}");
+
+            state.AppSeed.HasBuild = appSeedBuildDef != null;
+
+            if (state.AppSeed.HasBuild)
+            {
+                var appSeedBuilds = await bldClient.GetBuildsAsync(project.Id.ToString(), new[] { appSeedBuildDef.Id });
+
+                var appSeedBuild = infraBuilds.FirstOrDefault();
+
+                state.AppSeed.AppSeedBuilt = appSeedBuild.Status == BuildStatus.Completed;
+            }
+
+            var apps = await appGraph.ListApplications(details.EnterpriseAPIKey);
+
+            var appSeedApp = apps.FirstOrDefault(app => app.PathRegex == $"/{repoOrg}/{state.AppSeed.NewName}*");
+
+            if (appSeedApp != null)
+            {
+                var dafApp = await appGraph.GetDAFApplications(details.EnterpriseAPIKey, appSeedApp.ID);
+
+                state.AppSeed.Step = ForgeInfrastructureApplicationSeedStepTypes.Created;
+            }
+
+            return state;
+        }
+
         public virtual async Task<ForgeInfrastructureState> CommitInfrastructure(string filesRoot)
         {
             var repoName = state.EnvSettings?.Metadata?["GitHubRepository"]?.ToString();
@@ -416,35 +463,16 @@ namespace LCU.State.API.Forge.Infrastructure.Harness
             //  TODO - Support configured prefix for name inside the AppSeedOption config
             //(state.AppSeed.SelectedSeed == "Angular" ? name : $"lcu-{name}").ToLower();
 
-            var appSeed = state.AppSeed.Options.FirstOrDefault(o => o.Lookup == state.AppSeed.SelectedSeed);
-
-            var project = await getOrCreateDevOpsProject();
-
-            await ensureInfrastructureIsBuilt(project, repoOrg);
-
-            await withOfflineHarness<CreateAppFromSeedRequest, ForgeInfrastructureStateHarness>(async (mgr, reqData) =>
-            {
-                return await mgr.CompleteAppSeedCreation(filesRoot, repoName);
-            });
+            // await withOfflineHarness<CreateAppFromSeedRequest, ForgeInfrastructureStateHarness>(async (mgr, reqData) =>
+            // {
+            //     return await mgr.CompleteAppSeedCreation(filesRoot, repoName);
+            // });
 
             state.AppSeed.Step = ForgeInfrastructureApplicationSeedStepTypes.Creating;
 
+            await CompleteAppSeedCreation(filesRoot, repoName);
+
             return state;
-        }
-
-        protected override async Task withOfflineHarness<TArgs, TMgr>(Func<TMgr, TArgs, Task<ForgeInfrastructureState>> action)
-        {
-            var offlineHarness = req.Manage<ForgeInfrastructureState, TMgr>(state, log);
-
-            await DesignOutline.Instance.Async().Queue(offlineHarness).SetAction((m) =>
-            {
-                var mgr = (TMgr)m;
-
-                using (mgr)
-                {
-                    var rslt = action(mgr, default(TArgs)).Result;
-                }
-            }).Run();
         }
 
         public virtual async Task<ForgeInfrastructureState> CompleteAppSeedCreation(string filesRoot, string repoName)
@@ -454,6 +482,8 @@ namespace LCU.State.API.Forge.Infrastructure.Harness
             var project = await getOrCreateDevOpsProject();
 
             var repoOrg = state.EnvSettings?.Metadata?["GitHubOrganization"]?.ToString();
+
+            await ensureInfrastructureIsBuilt(project, repoOrg);
 
             var appSeedBuildDef = await ensureBuildForAppSeed(project, repoOrg, repoName);
 
@@ -822,7 +852,7 @@ namespace LCU.State.API.Forge.Infrastructure.Harness
 
             dafView.PackageVersion = appStatus.Metadata["Version"].ToString();
 
-            var dafApp = appGraph.SaveDAFApplication(details.EnterpriseAPIKey, dafView.JSONConvert<DAFApplicationConfiguration>()).Result;
+            var dafApp = await appGraph.SaveDAFApplication(details.EnterpriseAPIKey, dafView.JSONConvert<DAFApplicationConfiguration>());
         }
 
         protected virtual BuildDefinition createBuildDefinition(TeamProjectReference project, DesignerProcess process, Octokit.Repository repo,
@@ -2566,30 +2596,6 @@ namespace LCU.State.API.Forge.Infrastructure.Harness
 
                 await Task.Delay(1000);
             } while (!status);
-
-            return status;
-        }
-
-        protected virtual async Task<Status> startReleaseDeployAndWait(TeamProjectReference project, DefinitionReference rlsDef)
-        {
-            var deplyos = await rlsClient.GetDeploymentsAsync(project.Id.ToString(), definitionId: rlsDef.Id);
-
-            deplyos = deplyos.OrderByDescending(rls => rls.QueuedOn).ToList();
-
-            var latestDeploy = deplyos.FirstOrDefault();
-
-            // latestDeploy.
-
-            var status = Status.GeneralError;
-
-            // do
-            // {
-            //     release = await bldClient.GetBuildAsync(project.Id.ToString(), release.Id);
-
-            //     status = release.Status.HasValue && release.Status.Value == BuildStatus.Completed;
-
-            //     await Task.Delay(1000);
-            // } while (!status);
 
             return status;
         }
