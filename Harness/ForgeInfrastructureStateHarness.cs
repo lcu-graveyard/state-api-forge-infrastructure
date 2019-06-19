@@ -490,15 +490,15 @@ namespace LCU.State.API.Forge.Infrastructure.Harness
             if (state.InfraTemplate == null || gitHubClient == null)
                 state.InfraTemplate = new InfrastructureTemplateState();
 
-            // await HasDevOpsSetup();
+            await HasDevOpsSetup();
 
             return await WhenAll(
-                // HasDevOps(),
-                // GetEnvironments(),
-                // HasInfrastructure(),
-                // HasSourceControl(),
-                // ListGitHubOrganizations(),
-                // ListGitHubOrgRepos()
+                HasDevOps(),
+                GetEnvironments(),
+                HasInfrastructure(),
+                HasSourceControl(),
+                ListGitHubOrganizations(),
+                ListGitHubOrgRepos()
             );
         }
 
