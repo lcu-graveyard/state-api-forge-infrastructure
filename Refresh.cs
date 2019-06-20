@@ -23,9 +23,9 @@ namespace LCU.State.API.Forge.Infrastructure
             {
                 await mgr.Ensure();
 
-                await mgr.HasProdConfig(context.FunctionDirectory);
+                await mgr.HasProdConfig(context.FunctionAppDirectory);
 
-                await mgr.LoadInfrastructureRepository(context.FunctionDirectory);
+                await mgr.LoadInfrastructureRepository(context.FunctionAppDirectory);
 
                 return await mgr.WhenAll(
                 );
