@@ -28,7 +28,7 @@ namespace LCU.State.API.Forge.Infrastructure
         {
             return await req.Manage<AppSeedCompleteCheckRequest, ForgeInfrastructureState, ForgeInfrastructureStateHarness>(log, async (mgr, reqData) =>
             {
-                await mgr.AppSeedCompleteCheck(context.FunctionAppDirectory);
+                await mgr.AppSeedCompleteCheck(context.FunctionDirectory);
 
                 return await mgr.WhenAll(
                 );

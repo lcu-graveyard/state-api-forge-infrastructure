@@ -42,7 +42,7 @@ namespace LCU.State.API.Forge.Infrastructure
                 await mgr.Ensure();
 
                 return await mgr.WhenAll(
-                    mgr.LoadInfrastructureRepository(context.FunctionAppDirectory)
+                    mgr.LoadInfrastructureRepository(context.FunctionDirectory)
                 );
             });
         }
