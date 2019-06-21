@@ -472,7 +472,14 @@ namespace LCU.State.API.Forge.Infrastructure.Harness
 
             state.AppSeed.Step = ForgeInfrastructureApplicationSeedStepTypes.Creating;
 
-            await CompleteAppSeedCreation(filesRoot, repoName);
+            try
+            {
+                await CompleteAppSeedCreation(filesRoot, repoName);
+            }
+            catch (Exception ex)
+            {
+                log.LogError(ex, "Error in CreateAppFromSeed");
+            }
 
             return state;
         }
@@ -2567,6 +2574,8 @@ namespace LCU.State.API.Forge.Infrastructure.Harness
 
                     npm.StandardInput.WriteLine($"{runCmd} & exit");
 
+                    log.LogInformation($"Executed command {runCmd}");
+
                     npm.WaitForExit();
 
                     npm.CancelErrorRead();
@@ -2579,6 +2588,8 @@ namespace LCU.State.API.Forge.Infrastructure.Harness
                 var credsProvider = loadCredHandler();
 
                 await commitAndSync($"Seeding with {state.AppSeed.SelectedSeed}", repoPath, credsProvider);
+
+                log.LogInformation($"Committed {state.AppSeed.SelectedSeed}");
 
                 await startBuildAndWait(project, buildDef);
             }
