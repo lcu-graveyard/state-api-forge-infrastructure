@@ -28,14 +28,14 @@ namespace LCU.State.API.Forge.Infrastructure
         {
             return await req.Manage<CommitInfrastructureRequest, ForgeInfrastructureState, ForgeInfrastructureStateHarness>(log, async (mgr, reqData) =>
             {
-                await mgr.CommitInfrastructure(context.FunctionDirectory);
+                await mgr.CommitInfrastructure($"{context.FunctionAppDirectory}\\..");
 
                 await mgr.Ensure();
 
-                await mgr.HasProdConfig(context.FunctionDirectory);
+                await mgr.HasProdConfig($"{context.FunctionAppDirectory}\\..");
 
                 return await mgr.WhenAll(
-                    mgr.LoadInfrastructureRepository(context.FunctionDirectory)
+                    mgr.LoadInfrastructureRepository($"{context.FunctionAppDirectory}\\..")
                 );
             });
         }
