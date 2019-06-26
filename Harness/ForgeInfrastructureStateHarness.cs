@@ -183,7 +183,7 @@ namespace LCU.State.API.Forge.Infrastructure.Harness
 
             var repoOrg = state.EnvSettings?.Metadata?["GitHubOrganization"]?.ToString();
 
-            var repoName = state.EnvSettings?.Metadata?["GitHubRepository"]?.ToString();
+            var infraRepoName = state.EnvSettings?.Metadata?["GitHubRepository"]?.ToString();
 
             var repoPath = Path.Combine(filesRoot, $"git\\repos\\{repoOrg}\\{state.AppSeed.NewName}");
 
@@ -191,7 +191,7 @@ namespace LCU.State.API.Forge.Infrastructure.Harness
 
             var existingDefs = await bldClient.GetDefinitionsAsync(project.Id.ToString());
 
-            var infraBuildDef = existingDefs.FirstOrDefault(bd => bd.Name == $"{repoOrg} {repoName}");
+            var infraBuildDef = existingDefs.FirstOrDefault(bd => bd.Name == $"{repoOrg} {infraRepoName} - Build");
 
             var infraBuilds = await bldClient.GetBuildsAsync(project.Id.ToString(), new[] { infraBuildDef.Id });
 
@@ -207,7 +207,7 @@ namespace LCU.State.API.Forge.Infrastructure.Harness
 
             state.AppSeed.AppSeeded = lcuJson != null && lcuJson.Exists;
 
-            var appSeedBuildDef = existingDefs.FirstOrDefault(bd => bd.Name == $"{repoOrg} {state.AppSeed.NewName}");
+            var appSeedBuildDef = existingDefs.FirstOrDefault(bd => bd.Name == $"{repoOrg} {state.AppSeed.NewName} - Build");
 
             state.AppSeed.HasBuild = appSeedBuildDef != null;
 
@@ -215,20 +215,25 @@ namespace LCU.State.API.Forge.Infrastructure.Harness
             {
                 var appSeedBuilds = await bldClient.GetBuildsAsync(project.Id.ToString(), new[] { appSeedBuildDef.Id });
 
-                var appSeedBuild = infraBuilds.FirstOrDefault();
+                var appSeedBuild = appSeedBuilds.FirstOrDefault();
 
                 state.AppSeed.AppSeedBuilt = appSeedBuild.Status == BuildStatus.Completed;
             }
 
-            var apps = await appGraph.ListApplications(details.EnterpriseAPIKey);
-
-            var appSeedApp = apps.FirstOrDefault(app => app.PathRegex == $"/{repoOrg}/{state.AppSeed.NewName}*");
-
-            if (appSeedApp != null)
+            if (state.AppSeed.AppSeedBuilt && state.AppSeed.Step != ForgeInfrastructureApplicationSeedStepTypes.Created)
             {
-                var dafApp = await appGraph.GetDAFApplications(details.EnterpriseAPIKey, appSeedApp.ID);
+                await configureForge(repoOrg, state.AppSeed.NewName, appSeed.ReleasePackageSuffix);
 
-                state.AppSeed.Step = ForgeInfrastructureApplicationSeedStepTypes.Created;
+                var apps = await appGraph.ListApplications(details.EnterpriseAPIKey);
+
+                var appSeedApp = apps.FirstOrDefault(app => app.PathRegex == $"/{repoOrg}/{state.AppSeed.NewName}*");
+
+                if (appSeedApp != null)
+                {
+                    var dafApp = await appGraph.GetDAFApplications(details.EnterpriseAPIKey, appSeedApp.ID);
+
+                    state.AppSeed.Step = dafApp != null ? ForgeInfrastructureApplicationSeedStepTypes.Created : state.AppSeed.Step;  // TODO:  Handle Error (DAF null)
+                }
             }
 
             return state;
@@ -365,9 +370,7 @@ namespace LCU.State.API.Forge.Infrastructure.Harness
 
             process.Phases.Add(phase);
 
-            var buildDef = createBuildDefinition(project, process, repo, repoOrg, repoName, gitHubCSId);
-
-            buildDef = await bldClient.CreateDefinitionAsync(buildDef);
+            var buildDef = await createBuildDefinition(project, process, repo, repoOrg, repoName, gitHubCSId, "Build");
 
             var safeEnvName = state.Environment.Lookup.Replace("-", String.Empty);
 
@@ -414,8 +417,10 @@ namespace LCU.State.API.Forge.Infrastructure.Harness
             {
                 var orgLookup = state.GitHub.SelectedOrg;
 
+                //  TODO: Power with data instead of static....  This way root infra repo can be controlled
                 var originOrgName = "lowcodeunit";
 
+                //  TODO: Power with data instead of static....  This way root infra repo can be controlled
                 var repoName = "infrastructure";
 
                 Octokit.Repository orgInfraRepo = null;
@@ -429,7 +434,6 @@ namespace LCU.State.API.Forge.Infrastructure.Harness
 
                 if (orgInfraRepo == null)
                 {
-                    //  TODO: Power with data instead of static....  This way root infra repo can be controlled
                     var forkedRepo = await gitHubClient.Repository.Forks.Create(originOrgName, repoName, new Octokit.NewRepositoryFork()
                     {
                         Organization = orgLookup
@@ -494,11 +498,13 @@ namespace LCU.State.API.Forge.Infrastructure.Harness
 
             await ensureInfrastructureIsBuilt(project, repoOrg);
 
-            var appSeedBuildDef = await ensureBuildForAppSeed(project, repoOrg, repoName);
+            var azure = Azure.Authenticate(getAuthorization());
 
-            await seedRepo(filesRoot, project, appSeedBuildDef, appSeed, repoOrg, repoName);
+            var azureSub = azure.Subscriptions.GetById(state.EnvSettings.Metadata["AzureSubID"].ToString());
 
-            await configureForge(repoOrg, repoName, appSeed.ReleasePackageSuffix);
+            var appSeedBuildDef = await ensureBuildForAppSeed(project, azureSub, repoOrg, repoName);
+
+            await seedRepo(filesRoot, project, appSeed, azureSub, repoOrg, repoName);
 
             return state;
         }
@@ -864,10 +870,14 @@ namespace LCU.State.API.Forge.Infrastructure.Harness
             var dafApp = await appGraph.SaveDAFApplication(details.EnterpriseAPIKey, dafView.JSONConvert<DAFApplicationConfiguration>());
         }
 
-        protected virtual BuildDefinition createBuildDefinition(TeamProjectReference project, DesignerProcess process, Octokit.Repository repo,
-            string repoOrg, string repoName, string gitHubCSId, string defaultBranch = "master")
+        protected virtual async Task<BuildDefinition> createBuildDefinition(TeamProjectReference project, DesignerProcess process, Octokit.Repository repo,
+            string repoOrg, string repoName, string gitHubCSId, string nameSuffix, Func<BuildDefinition, BuildDefinition> completeBuildDef = null, string defaultBranch = "master",
+            bool blockCITrigger = false)
         {
             var name = $"{repoOrg} {repoName}";
+
+            if (!nameSuffix.IsNullOrEmpty())
+                name = $"{name} - {nameSuffix}";
 
             var buildDef = new BuildDefinition()
             {
@@ -943,16 +953,19 @@ namespace LCU.State.API.Forge.Infrastructure.Harness
 
             buildDef.Repository.Properties.Add("skipSyncSource", "false");
 
-            var ci = new ContinuousIntegrationTrigger();
+            if (!blockCITrigger)
+            {
+                var ci = new ContinuousIntegrationTrigger();
 
-            ci.BranchFilters.Add("+master");
+                ci.BranchFilters.Add("+master");
 
-            if (defaultBranch != "master")
-                ci.BranchFilters.Add($"+{defaultBranch}");
+                if (defaultBranch != "master")
+                    ci.BranchFilters.Add($"+{defaultBranch}");
 
-            ci.BranchFilters.Add("+feature/*");
+                ci.BranchFilters.Add("+feature/*");
 
-            buildDef.Triggers.Add(ci);
+                buildDef.Triggers.Add(ci);
+            }
 
             buildDef.Variables.Add("MajorVersion", new BuildDefinitionVariable()
             {
@@ -963,6 +976,20 @@ namespace LCU.State.API.Forge.Infrastructure.Harness
             {
                 Value = "1"
             });
+
+            if (completeBuildDef != null)
+                buildDef = completeBuildDef(buildDef);
+
+            buildDef = await bldClient.CreateDefinitionAsync(buildDef);
+
+            var triggerDefs = buildDef.Triggers.Select(t => t.TriggerType).Distinct().ToList();
+
+            try
+            {
+                await bldClient.RestoreWebhooksAsync(triggerDefs, project.Id.ToString(), "github");
+            }
+            catch (Exception ex)
+            { }
 
             return buildDef;
         }
@@ -1149,7 +1176,7 @@ namespace LCU.State.API.Forge.Infrastructure.Harness
             }
         }
 
-        protected virtual async Task<BuildDefinitionReference> ensureBuildForAppSeed(TeamProjectReference project, string repoOrg, string repoName)
+        protected virtual async Task<BuildDefinitionReference> ensureBuildForAppSeed(TeamProjectReference project, ISubscription azureSub, string repoOrg, string repoName)
         {
             var existingDefs = await bldClient.GetDefinitionsAsync(project.Id.ToString());
 
@@ -1157,10 +1184,6 @@ namespace LCU.State.API.Forge.Infrastructure.Harness
 
             if (existingDef == null)
             {
-                var azure = Azure.Authenticate(getAuthorization());
-
-                var azureSub = azure.Subscriptions.GetById(state.EnvSettings.Metadata["AzureSubID"].ToString());
-
                 log.LogInformation($"Getting or creationg repository {repoOrg}/{repoName}");
 
                 var repo = await getOrCreateRepository(repoOrg, repoName);
@@ -1172,8 +1195,6 @@ namespace LCU.State.API.Forge.Infrastructure.Harness
                 var gitHubCSId = endpoints["github"];
 
                 var azureRMCSId = endpoints["azurerm"];
-
-                var process = new DesignerProcess();
 
                 var npmBld = taskGroups.FirstOrDefault(tg => tg.Name == "Low Code Unit - NPM Build");
 
@@ -1215,11 +1236,11 @@ namespace LCU.State.API.Forge.Infrastructure.Harness
 
                 var phase = createBuildPhase(steps);
 
+                var process = new DesignerProcess();
+
                 process.Phases.Add(phase);
 
-                var buildDef = createBuildDefinition(project, process, repo, repoOrg, repoName, gitHubCSId);
-
-                buildDef = await bldClient.CreateDefinitionAsync(buildDef);
+                var buildDef = await createBuildDefinition(project, process, repo, repoOrg, repoName, gitHubCSId, "Build");
 
                 return buildDef;
             }
@@ -1232,6 +1253,8 @@ namespace LCU.State.API.Forge.Infrastructure.Harness
             var taskGroups = new List<TaskGroup>();
 
             taskGroups = await taskClient.GetTaskGroupsAsync(projectId, expanded: true);
+
+            //  TODO:  Manage task gropus as individual...never deleting, but adding any missing
 
             if (taskGroups.IsNullOrEmpty())
             {
@@ -1367,7 +1390,7 @@ namespace LCU.State.API.Forge.Infrastructure.Harness
 
             var buildDefs = await bldClient.GetDefinitionsAsync(project.Id.ToString());
 
-            var buildDef = buildDefs.FirstOrDefault(bd => bd.Name == $"{repoOrg} {repoName}");
+            var buildDef = buildDefs.FirstOrDefault(bd => bd.Name == $"{repoOrg} {repoName} - Build");
 
             if (buildDef != null)
             {
@@ -1381,7 +1404,9 @@ namespace LCU.State.API.Forge.Infrastructure.Harness
         {
             var credsProvider = loadCredHandler();
 
-            if (!repoDir.Exists)
+            removeRepo(repoDir);
+
+            // if (!repoDir.Exists)
             {
                 var cloneOptions = new LibGit2Sharp.CloneOptions()
                 {
@@ -1394,11 +1419,6 @@ namespace LCU.State.API.Forge.Infrastructure.Harness
             }
 
             await checkoutAndSync(repoDir.FullName, credsProvider);
-
-            using (var gitRepo = new LibGit2Sharp.Repository(repoDir.FullName))
-            {
-                gitRepo.Reset(ResetMode.Hard, gitRepo.Head.Tip);
-            }
         }
 
         protected virtual AzureCredentials getAuthorization()
@@ -2467,9 +2487,153 @@ namespace LCU.State.API.Forge.Infrastructure.Harness
             });
             #endregion
 
+            #region Git Add, Commit, Push
+            var gitAddPush = new TaskGroupCreateParameter()
+            {
+                Author = "LowCodeUnit",
+                Category = "Build",
+                Name = "Low Code Unit - Git Add, Commit, Push",
+                Description = "Git Add, Commit, Push",
+                IconUrl = "/_static/tfs/M140_20181015.3/_content/icon-meta-task.png",
+                FriendlyName = "Low Code Unit - Git Add, Commit, Push",
+                InstanceNameFormat = "Low Code Unit - Git Add, Commit, Push | $(BuildConfiguration)"
+            };
+
+            gitAddPush.RunsOn.Clear();
+
+            gitAddPush.RunsOn.Add("Agent");
+
+            gitAddPush.RunsOn.Add("DeploymentGroup");
+
+            gitAddPush.Inputs.Add(new TaskInputDefinition()
+            {
+                Name = "GitToken",
+                Label = "GitToken",
+                DefaultValue = "",
+                Required = true,
+                InputType = "string",
+                HelpMarkDown = "The Git Token to use."
+            });
+
+            gitAddPush.Inputs.Add(new TaskInputDefinition()
+            {
+                Name = "RepoName",
+                Label = "RepoName",
+                DefaultValue = "",
+                Required = true,
+                InputType = "string",
+                HelpMarkDown = "The Repo Name to use."
+            });
+
+            gitAddPush.Inputs.Add(new TaskInputDefinition()
+            {
+                Name = "RepoOrg",
+                Label = "RepoOrg",
+                DefaultValue = "",
+                Required = true,
+                InputType = "string",
+                HelpMarkDown = "The Repo Org to use."
+            });
+
+            gitAddPush.Tasks.Add(new TaskGroupStep()
+            {
+                Condition = "succeeded()",
+                DisplayName = "git config user.email \"lcu-os@fathym.com\"",
+                Enabled = true,
+                Inputs = new Dictionary<string, string>()
+                {
+                    { "failOnStderr", "false" },
+                    { "script", "git config user.email \"lcu-os@fathym.com\"" },
+                    { "workingDirectory", "" }
+                },
+                Task = new Microsoft.TeamFoundation.DistributedTask.WebApi.TaskDefinitionReference()
+                {
+                    Id = new Guid("d9bafed4-0b18-4f58-968d-86655b4d2ce9"),
+                    VersionSpec = "2.*",
+                    DefinitionType = "task"
+                }
+            });
+
+            gitAddPush.Tasks.Add(new TaskGroupStep()
+            {
+                Condition = "succeeded()",
+                DisplayName = "git config user.name \"LCU OS\"",
+                Enabled = true,
+                Inputs = new Dictionary<string, string>()
+                {
+                    { "failOnStderr", "false" },
+                    { "script", "git config user.name \"LCU OS\"" },
+                    { "workingDirectory", "" }
+                },
+                Task = new Microsoft.TeamFoundation.DistributedTask.WebApi.TaskDefinitionReference()
+                {
+                    Id = new Guid("d9bafed4-0b18-4f58-968d-86655b4d2ce9"),
+                    VersionSpec = "2.*",
+                    DefinitionType = "task"
+                }
+            });
+
+            gitAddPush.Tasks.Add(new TaskGroupStep()
+            {
+                Condition = "succeeded()",
+                DisplayName = "git add .",
+                Enabled = true,
+                Inputs = new Dictionary<string, string>()
+                {
+                    { "failOnStderr", "false" },
+                    { "script", "git add ." },
+                    { "workingDirectory", "" }
+                },
+                Task = new Microsoft.TeamFoundation.DistributedTask.WebApi.TaskDefinitionReference()
+                {
+                    Id = new Guid("d9bafed4-0b18-4f58-968d-86655b4d2ce9"),
+                    VersionSpec = "2.*",
+                    DefinitionType = "task"
+                }
+            });
+
+            gitAddPush.Tasks.Add(new TaskGroupStep()
+            {
+                Condition = "succeeded()",
+                DisplayName = "git commit -m \"App Seed\"",
+                Enabled = true,
+                Inputs = new Dictionary<string, string>()
+                {
+                    { "failOnStderr", "false" },
+                    { "script", "git commit -m \"App Seed\"" },
+                    { "workingDirectory", "" }
+                },
+                Task = new Microsoft.TeamFoundation.DistributedTask.WebApi.TaskDefinitionReference()
+                {
+                    Id = new Guid("d9bafed4-0b18-4f58-968d-86655b4d2ce9"),
+                    VersionSpec = "2.*",
+                    DefinitionType = "task"
+                }
+            });
+
+            gitAddPush.Tasks.Add(new TaskGroupStep()
+            {
+                Condition = "succeeded()",
+                DisplayName = "git push \"https://$(GitToken)@github.com/$(RepoOrg)/$(RepoName).git\" HEAD:master",
+                Enabled = true,
+                Inputs = new Dictionary<string, string>()
+                {
+                    { "failOnStderr", "false" },
+                    { "script", "git push \"https://$(GitToken)@github.com/$(RepoOrg)/$(RepoName).git\" HEAD:master" },
+                    { "workingDirectory", "" }
+                },
+                Task = new Microsoft.TeamFoundation.DistributedTask.WebApi.TaskDefinitionReference()
+                {
+                    Id = new Guid("d9bafed4-0b18-4f58-968d-86655b4d2ce9"),
+                    VersionSpec = "2.*",
+                    DefinitionType = "task"
+                }
+            });
+            #endregion
+
             return new List<TaskGroupCreateParameter>()
             {
-                azFuncTask, nugRstr, netCoreBldTst, netCoreBldTstPkg, netCorePkgPush, npmBld, cpyPub, gitLbl
+                azFuncTask, nugRstr, netCoreBldTst, netCoreBldTstPkg, netCorePkgPush, npmBld, cpyPub, gitLbl, gitAddPush
             };
         }
 
@@ -2486,123 +2650,144 @@ namespace LCU.State.API.Forge.Infrastructure.Harness
             return new LibGit2Sharp.Signature(user.Login, userEmail.Email, DateTimeOffset.Now);
         }
 
-        protected virtual async Task seedRepo(string filesRoot, TeamProjectReference project, BuildDefinitionReference buildDef, InfrastructureApplicationSeedOption appSeed,
-            string repoOrg, string repoName)
+        protected virtual void removeRepo(DirectoryInfo directory)
         {
-            var appRepo = await getOrCreateRepository(repoOrg, repoName);
-
-            log.LogInformation($"Repository {appRepo?.Name}");
-
-            var repoPath = Path.Combine(filesRoot, $"git\\repos\\{repoOrg}\\{repoName}");
-
-            var repoDir = new DirectoryInfo(repoPath);
-
-            await ensureRepo(repoDir, appRepo.CloneUrl);
-
-            var repoFiles = repoDir.GetFiles();
-
-            if (!repoFiles.Any(rf => rf.Name == "lcu.json"))
+            if (directory.Exists)
             {
-                log.LogInformation($"Repository {repoDir.FullName} ensured");
+                setAttributesNormal(directory);
 
-                var lineCount = 0;
-
-                var npm = new System.Diagnostics.Process();
-
-                npm.StartInfo.CreateNoWindow = true;
-
-                log.LogInformation($"Command EXE: {cmdExePath}");
-
-                log.LogInformation($"Command PATH variable: {cmdPathVariable}");
-
-                if (!cmdPathVariable.IsNullOrEmpty())
-                    npm.StartInfo.Environment["Path"] = cmdPathVariable;
-
-                npm.StartInfo.FileName = cmdExePath;
-
-                npm.StartInfo.RedirectStandardInput = true;
-
-                npm.StartInfo.RedirectStandardError = true;
-
-                npm.StartInfo.RedirectStandardOutput = true;
-
-                npm.StartInfo.UseShellExecute = false;
-
-                npm.StartInfo.WorkingDirectory = repoPath;
-
-                npm.EnableRaisingEvents = true;
-
-                npm.ErrorDataReceived += (sender, e) =>
-                {
-                    if (!String.IsNullOrEmpty(e.Data))
-                    {
-                        lineCount++;
-
-                        log.LogInformation($"[{lineCount}]: {e.Data}");
-                    }
-                };
-
-                npm.OutputDataReceived += (sender, e) =>
-                {
-                    // Prepend line numbers to each line of the output.
-                    if (!String.IsNullOrEmpty(e.Data))
-                    {
-                        lineCount++;
-
-                        log.LogInformation($"[{lineCount}]: {e.Data}");
-                    }
-                };
-
-                log.LogInformation($"Executing commands...");
-
-                appSeed.Commands.ForEach(command =>
-                {
-                    lineCount = 0;
-
-                    npm.Start();
-
-                    npm.BeginOutputReadLine();
-
-                    npm.BeginErrorReadLine();
-
-                    var runCmd = command
-                        .Replace("{{repoName}}", repoName)
-                        .Replace("{{repoOrg}}", repoOrg)
-                        .Replace("{{projName}}", repoName);
-
-                    log.LogInformation($"Executing command {runCmd}");
-
-                    npm.StandardInput.WriteLine($"{runCmd} & exit");
-
-                    log.LogInformation($"Executed command {runCmd}");
-
-                    npm.WaitForExit();
-
-                    npm.CancelErrorRead();
-
-                    npm.CancelOutputRead();
-                });
-
-                log.LogInformation($"Commands executed");
-
-                var credsProvider = loadCredHandler();
-
-                await commitAndSync($"Seeding with {state.AppSeed.SelectedSeed}", repoPath, credsProvider);
-
-                log.LogInformation($"Committed {state.AppSeed.SelectedSeed}");
-
-                await startBuildAndWait(project, buildDef);
+                directory.Delete(true);
             }
         }
 
-        protected virtual async Task<Status> startBuildAndWait(TeamProjectReference project, DefinitionReference buildDef)
+        protected virtual async Task seedRepo(string filesRoot, TeamProjectReference project, InfrastructureApplicationSeedOption appSeed, ISubscription azureSub,
+            string repoOrg, string repoName)
+        {
+            var repo = await getOrCreateRepository(repoOrg, repoName);
+
+            var endpoints = await ensureDevOpsServiceEndpoints(project.Id.ToString(), state.EnvSettings.Metadata["AzureSubID"].ToString(), azureSub.DisplayName);
+
+            var taskGroups = await ensureDevOpsTaskLibrary(project.Id.ToString(), endpoints);
+
+            var gitHubCSId = endpoints["github"];
+
+            var gitAddPush = taskGroups.FirstOrDefault(tg => tg.Name == "Low Code Unit - Git Add, Commit, Push");
+
+            var steps = new List<BuildDefinitionStep>()
+                {
+                    new BuildDefinitionStep()
+                    {
+                        AlwaysRun = true,
+                        Condition = "succeeded()",
+                        ContinueOnError = true,
+                        DisplayName = "Auto Dev",
+                        Enabled = true,
+                        Inputs = new Dictionary<string, string>() {
+                            { "failOnStderr", "false" },
+                            { "script", "$(AutoDevScript)" },
+                            { "workingDirectory", "" }
+                        },
+                        TaskDefinition = new Microsoft.TeamFoundation.Build.WebApi.TaskDefinitionReference()
+                        {
+                            DefinitionType = "task",
+                            VersionSpec = "2.*",
+                            Id = new Guid("d9bafed4-0b18-4f58-968d-86655b4d2ce9")
+                        }
+                    },
+                    new BuildDefinitionStep()
+                    {
+                        AlwaysRun = true,
+                        Condition = "succeeded()",
+                        ContinueOnError = true,
+                        DisplayName = gitAddPush.Name,
+                        Enabled = true,
+                        Inputs = new Dictionary<string, string>() {
+                            { "GitToken", "$(GitToken)" },
+                            { "RepoName", "$(RepoName)" },
+                            { "RepoOrg", "$(RepoOrg)" }
+                        },
+                        TaskDefinition = new Microsoft.TeamFoundation.Build.WebApi.TaskDefinitionReference()
+                        {
+                            DefinitionType= "metaTask",
+                            VersionSpec = "1.*",
+                            Id = gitAddPush.Id
+                        }
+                    },
+                };
+
+            var phase = createBuildPhase(steps);
+
+            var process = new DesignerProcess();
+
+            process.Phases.Add(phase);
+
+            var buildDef = await createBuildDefinition(project, process, repo, repoOrg, repoName, gitHubCSId, "Auto Dev", (bd) =>
+            {
+                bd.Variables.Add("AutoDevScript", new BuildDefinitionVariable()
+                {
+                    AllowOverride = true,
+                    Value = ""
+                });
+
+                bd.Variables.Add("GitToken", new BuildDefinitionVariable()
+                {
+                    AllowOverride = true,
+                    IsSecret = true,
+                    Value = ""
+                });
+
+                bd.Variables.Add("RepoName", new BuildDefinitionVariable()
+                {
+                    AllowOverride = true,
+                    Value = ""
+                });
+
+                bd.Variables.Add("RepoOrg", new BuildDefinitionVariable()
+                {
+                    AllowOverride = true,
+                    Value = ""
+                });
+
+                return bd;
+            }, blockCITrigger: true);
+
+            await startBuild(project, buildDef, new
+            {
+                AutoDevScript = String.Join(" & ", appSeed.Commands),
+                GitToken = gitHubToken,
+                RepoName = repoName,
+                RepoOrg = repoOrg
+            });
+        }
+
+        protected virtual void setAttributesNormal(DirectoryInfo directory)
+        {
+            directory.GetFiles("*", SearchOption.AllDirectories).Each(file =>
+            {
+                try
+                {
+                    file.Attributes = FileAttributes.Normal;
+                }
+                catch { }
+            });
+        }
+
+        protected virtual async Task<Build> startBuild(TeamProjectReference project, DefinitionReference buildDef, object parameters = null)
         {
             var build = await bldClient.QueueBuildAsync(new Build()
             {
                 Project = project,
                 Priority = QueuePriority.High,
-                Definition = buildDef
+                Definition = buildDef,
+                Parameters = parameters?.ToJSON()
             });
+
+            return build;
+        }
+
+        protected virtual async Task<Status> startBuildAndWait(TeamProjectReference project, DefinitionReference buildDef, object parameters = null)
+        {
+            var build = await startBuild(project, buildDef, parameters);
 
             var status = Status.GeneralError;
 
