@@ -9,23 +9,28 @@ using Microsoft.Extensions.Logging;
 using Newtonsoft.Json;
 using LCU.State.API.Forge.Infrastructure.Models;
 using LCU.State.API.Forge.Infrastructure.Harness;
+using System.Runtime.Serialization;
 
 namespace LCU.State.API.Forge.Infrastructure
 {
-    public static class Refresh
+    [Serializable]
+    [DataContract]
+    public class CreateAppFromSeedRequest
     {
-        [FunctionName("Refresh")]
+        [DataMember]
+        public virtual string Name { get; set; }
+    }
+
+    public static class CreateAppFromSeed
+    {
+        [FunctionName("CreateAppFromSeed")]
         public static async Task<IActionResult> Run(
-            [HttpTrigger(AuthorizationLevel.Admin, "post", Route = null)] HttpRequest req,
+            [HttpTrigger(AuthorizationLevel.Admin, "get", "post", Route = null)] HttpRequest req,
             ILogger log, ExecutionContext context)
         {
-            return await req.Manage<dynamic, ForgeInfrastructureState, ForgeInfrastructureStateHarness>(log, async (mgr, reqData) =>
+            return await req.Manage<CreateAppFromSeedRequest, ForgeInfrastructureState, ForgeInfrastructureStateHarness>(log, async (mgr, reqData) =>
             {
-                await mgr.Ensure();
-
-                await mgr.HasProdConfig($"{context.FunctionAppDirectory}\\..");
-
-                await mgr.LoadInfrastructureRepository($"{context.FunctionAppDirectory}\\..");
+                await mgr.CreateAppFromSeed($"{context.FunctionAppDirectory}\\..", reqData.Name);
 
                 return await mgr.WhenAll(
                 );

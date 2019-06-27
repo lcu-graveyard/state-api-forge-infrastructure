@@ -7,27 +7,35 @@ using Microsoft.Azure.WebJobs.Extensions.Http;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Logging;
 using Newtonsoft.Json;
+using System.Runtime.Serialization;
 using LCU.State.API.Forge.Infrastructure.Models;
 using LCU.State.API.Forge.Infrastructure.Harness;
 
 namespace LCU.State.API.Forge.Infrastructure
 {
-    public static class Refresh
+    [Serializable]
+    [DataContract]
+    public class CommitInfrastructureRequest
     {
-        [FunctionName("Refresh")]
+    }
+
+    public static class CommitInfrastructure
+    {
+        [FunctionName("CommitInfrastructure")]
         public static async Task<IActionResult> Run(
             [HttpTrigger(AuthorizationLevel.Admin, "post", Route = null)] HttpRequest req,
             ILogger log, ExecutionContext context)
         {
-            return await req.Manage<dynamic, ForgeInfrastructureState, ForgeInfrastructureStateHarness>(log, async (mgr, reqData) =>
+            return await req.Manage<CommitInfrastructureRequest, ForgeInfrastructureState, ForgeInfrastructureStateHarness>(log, async (mgr, reqData) =>
             {
+                await mgr.CommitInfrastructure($"{context.FunctionAppDirectory}\\..");
+
                 await mgr.Ensure();
 
                 await mgr.HasProdConfig($"{context.FunctionAppDirectory}\\..");
 
-                await mgr.LoadInfrastructureRepository($"{context.FunctionAppDirectory}\\..");
-
                 return await mgr.WhenAll(
+                    mgr.LoadInfrastructureRepository($"{context.FunctionAppDirectory}\\..")
                 );
             });
         }

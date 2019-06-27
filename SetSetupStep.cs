@@ -7,27 +7,33 @@ using Microsoft.Azure.WebJobs.Extensions.Http;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Logging;
 using Newtonsoft.Json;
+using System.Runtime.Serialization;
 using LCU.State.API.Forge.Infrastructure.Models;
 using LCU.State.API.Forge.Infrastructure.Harness;
 
 namespace LCU.State.API.Forge.Infrastructure
 {
-    public static class Refresh
+    [Serializable]
+    [DataContract]
+    public class SetSetupStepRequest
     {
-        [FunctionName("Refresh")]
+        [DataMember]
+        public virtual ForgeInfrastructureSetupStepTypes? Step {get; set;}
+    }
+    
+    public static class SetSetupStep
+    {
+        [FunctionName("SetSetupStep")]
         public static async Task<IActionResult> Run(
             [HttpTrigger(AuthorizationLevel.Admin, "post", Route = null)] HttpRequest req,
-            ILogger log, ExecutionContext context)
+            ILogger log)
         {
-            return await req.Manage<dynamic, ForgeInfrastructureState, ForgeInfrastructureStateHarness>(log, async (mgr, reqData) =>
+            return await req.Manage<SetSetupStepRequest, ForgeInfrastructureState, ForgeInfrastructureStateHarness>(log, async (mgr, reqData) =>
             {
-                await mgr.Ensure();
-
-                await mgr.HasProdConfig($"{context.FunctionAppDirectory}\\..");
-
-                await mgr.LoadInfrastructureRepository($"{context.FunctionAppDirectory}\\..");
+                await mgr.SetSetupStep(reqData.Step);
 
                 return await mgr.WhenAll(
+                    mgr.Ensure()
                 );
             });
         }
