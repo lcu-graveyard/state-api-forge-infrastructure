@@ -952,7 +952,6 @@ namespace LCU.State.API.Forge.Infrastructure.Harness
             buildDef.Repository.Properties.Add("shortName", repoName);
 
             buildDef.Repository.Properties.Add("skipSyncSource", "false");
-            
 
             if (!blockCITrigger)
             {
