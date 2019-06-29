@@ -473,7 +473,7 @@ loadVssHttpClients();
 
             var repoOrg = state.EnvSettings?.Metadata?["GitHubOrganization"]?.ToString();
 
-            // await ensureInfrastructureIsBuilt(project, repoOrg);
+            await ensureInfrastructureIsBuilt(project, repoOrg);
 
             var azure = Azure.Authenticate(getAuthorization());
 
@@ -2825,13 +2825,13 @@ loadVssHttpClients();
         {
             var ent = await entGraph.LoadByPrimaryAPIKey(details.ApplicationEnterpriseAPIKey);
 
-            var name = $"LCU OS - {ent.Name}";
+            state.DevOps.ProjectName = $"LCU OS - {ent.Name}";
 
             var projects = await projClient.GetProjects(ProjectState.All);
 
-            var project = projects.FirstOrDefault(p => p.Name == name);
+            var project = projects.FirstOrDefault(p => p.Name == state.DevOps.ProjectName);
 
-            return new Tuple<TeamProjectReference, string>(project, name);
+            return new Tuple<TeamProjectReference, string>(project, state.DevOps.ProjectName);
         }
 
         protected virtual async Task<Octokit.Repository> tryGetRepository(string repoOrg, string repoName)

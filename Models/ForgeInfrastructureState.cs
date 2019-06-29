@@ -61,6 +61,9 @@ namespace LCU.State.API.Forge.Infrastructure.Models
         public virtual string NPMRegistry { get; set; }
 
         [DataMember]
+        public virtual string ProjectName { get; set; }
+
+        [DataMember]
         public virtual bool Setup { get; set; }
 
         [DataMember]
