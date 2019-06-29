@@ -130,17 +130,7 @@ namespace LCU.State.API.Forge.Infrastructure.Harness
                     new VssOAuthHandler(devOpsToken)
                 });
 
-                var tasks = new Task[] {
-                    Task.Run(() => bldClient = devOpsConn.GetClient<BuildHttpClient>()),
-                    Task.Run(() => rlsClient = devOpsConn.GetClient<ReleaseHttpClient>()),
-                    Task.Run(() => projClient = devOpsConn.GetClient<ProjectHttpClient>()),
-                    Task.Run(() => taskClient = devOpsConn.GetClient<TaskAgentHttpClient>()),
-                    Task.Run(() => seClient = devOpsConn.GetClient<ServiceEndpointHttpClient>()),
-                    Task.Run(() => {
-                    })
-                };
-
-                Task.WhenAll(tasks).Wait();
+loadVssHttpClients();
             }
 
             gitHubToken = idGraph.RetrieveThirdPartyAccessToken(details.EnterpriseAPIKey, details.Username, "GIT-HUB").Result;
@@ -2654,6 +2644,29 @@ namespace LCU.State.API.Forge.Infrastructure.Harness
             return new LibGit2Sharp.Signature(user.Login, userEmail.Email, DateTimeOffset.Now);
         }
 
+        protected virtual void loadVssHttpClients()
+        {
+            try
+            {
+                var tasks = new Task[] {
+                    Task.Run(() => bldClient = devOpsConn.GetClient<BuildHttpClient>()),
+                    Task.Run(() => rlsClient = devOpsConn.GetClient<ReleaseHttpClient>()),
+                    Task.Run(() => projClient = devOpsConn.GetClient<ProjectHttpClient>()),
+                    Task.Run(() => taskClient = devOpsConn.GetClient<TaskAgentHttpClient>()),
+                    Task.Run(() => seClient = devOpsConn.GetClient<ServiceEndpointHttpClient>()),
+                    Task.Run(() => {
+                    })
+                };
+
+                Task.WhenAll(tasks).Wait();
+
+                state.DevOps.Unauthorized = null;
+            }
+            catch (VssUnauthorizedException vuex)
+            {
+                state.DevOps.Unauthorized = "/.devops/refresh";
+            }
+        }
         protected virtual void removeRepo(DirectoryInfo directory)
         {
             if (directory.Exists)

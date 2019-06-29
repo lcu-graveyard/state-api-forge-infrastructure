@@ -62,6 +62,9 @@ namespace LCU.State.API.Forge.Infrastructure.Models
 
         [DataMember]
         public virtual bool Setup { get; set; }
+
+        [DataMember]
+        public virtual string Unauthorized { get; set; }
     }
 
     [DataContract]
