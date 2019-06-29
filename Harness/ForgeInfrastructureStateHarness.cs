@@ -599,7 +599,7 @@ loadVssHttpClients();
 
             TeamProjectReference project = null;
 
-            if (devOpsConn != null)
+            if (projClient != null)
             {
                 var projData = await tryGetDevOpsProject();
                 
