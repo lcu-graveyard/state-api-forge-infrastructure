@@ -423,22 +423,7 @@ namespace LCU.State.API.Forge.Infrastructure.Harness
                 //  TODO: Power with data instead of static....  This way root infra repo can be controlled
                 var repoName = "infrastructure";
 
-                Octokit.Repository orgInfraRepo = null;
-
-                try
-                {
-                    orgInfraRepo = await gitHubClient.Repository.Get(orgLookup, repoName);
-                }
-                catch (Octokit.NotFoundException nfex)
-                { }
-
-                if (orgInfraRepo == null)
-                {
-                    var forkedRepo = await gitHubClient.Repository.Forks.Create(originOrgName, repoName, new Octokit.NewRepositoryFork()
-                    {
-                        Organization = orgLookup
-                    });
-                }
+                var orgInfraRepo = await getOrForkRepository(originOrgName, orgLookup, repoName);
 
                 settings.Metadata["GitHubRepository"] = repoName;
 
@@ -465,7 +450,9 @@ namespace LCU.State.API.Forge.Infrastructure.Harness
         {
             var repoOrg = state.EnvSettings?.Metadata?["GitHubOrganization"]?.ToString();
 
-            var repoName = state.AppSeed.NewName = name.ToLower();
+            var appSeed = state.AppSeed.Options.FirstOrDefault(o => o.Lookup == state.AppSeed.SelectedSeed);
+
+            var repoName = state.AppSeed.NewName = appSeed?.SeedFork?.Repository.ToLower() ?? name.ToLower();
             //  TODO - Support configured prefix for name inside the AppSeedOption config
             //(state.AppSeed.SelectedSeed == "Angular" ? name : $"lcu-{name}").ToLower();
 
@@ -496,13 +483,13 @@ namespace LCU.State.API.Forge.Infrastructure.Harness
 
             var repoOrg = state.EnvSettings?.Metadata?["GitHubOrganization"]?.ToString();
 
-            await ensureInfrastructureIsBuilt(project, repoOrg);
+            // await ensureInfrastructureIsBuilt(project, repoOrg);
 
             var azure = Azure.Authenticate(getAuthorization());
 
             var azureSub = azure.Subscriptions.GetById(state.EnvSettings.Metadata["AzureSubID"].ToString());
 
-            var appSeedBuildDef = await ensureBuildForAppSeed(project, azureSub, repoOrg, repoName);
+            var appSeedBuildDef = await ensureBuildForAppSeed(project, azureSub, repoOrg, repoName, appSeed.SeedFork);
 
             await seedRepo(filesRoot, project, appSeed, azureSub, repoOrg, repoName);
 
@@ -624,9 +611,9 @@ namespace LCU.State.API.Forge.Infrastructure.Harness
 
             if (devOpsConn != null)
             {
-                var projects = await projClient.GetProjects(ProjectState.All);
-
-                project = projects.FirstOrDefault(p => p.Name == "LCU OS");
+                var projData = await tryGetDevOpsProject();
+                
+                project = projData.Item1;
             }
 
             if (project != null)
@@ -1176,7 +1163,8 @@ namespace LCU.State.API.Forge.Infrastructure.Harness
             }
         }
 
-        protected virtual async Task<BuildDefinitionReference> ensureBuildForAppSeed(TeamProjectReference project, ISubscription azureSub, string repoOrg, string repoName)
+        protected virtual async Task<BuildDefinitionReference> ensureBuildForAppSeed(TeamProjectReference project, ISubscription azureSub, string repoOrg, string repoName,
+            InfrastructureApplicationSeedFork fork)
         {
             var existingDefs = await bldClient.GetDefinitionsAsync(project.Id.ToString());
 
@@ -1186,7 +1174,8 @@ namespace LCU.State.API.Forge.Infrastructure.Harness
             {
                 log.LogInformation($"Getting or creationg repository {repoOrg}/{repoName}");
 
-                var repo = await getOrCreateRepository(repoOrg, repoName);
+                var repo = fork != null && fork.Repository != null ? await getOrForkRepository(fork.Organization, repoOrg, fork.Repository) :
+                    await getOrCreateRepository(repoOrg, repoName);
 
                 var endpoints = await ensureDevOpsServiceEndpoints(project.Id.ToString(), state.EnvSettings.Metadata["AzureSubID"].ToString(), azureSub.DisplayName);
 
@@ -1394,9 +1383,7 @@ namespace LCU.State.API.Forge.Infrastructure.Harness
 
             if (buildDef != null)
             {
-                await startBuildAndWait(project, buildDef);
-
-                // await startDep(project, buildDef);
+                await startBuild(project, buildDef);
             }
         }
 
@@ -1432,15 +1419,17 @@ namespace LCU.State.API.Forge.Infrastructure.Harness
 
         protected virtual async Task<TeamProjectReference> getOrCreateDevOpsProject()
         {
-            var projects = await projClient.GetProjects(ProjectState.All);
+            var projectData = await tryGetDevOpsProject();
 
-            var project = projects.FirstOrDefault(p => p.Name == "LCU OS");
+            var project = projectData.Item1;
+
+            var name = projectData.Item2;
 
             if (project == null)
             {
                 var createRef = await projClient.QueueCreateProject(new TeamProject()
                 {
-                    Name = "LCU OS",
+                    Name = name,
                     Description = "Dev Ops automation and integrations for Low Code Units",
                     Capabilities = new Dictionary<string, Dictionary<string, string>>
                     {
@@ -1463,9 +1452,9 @@ namespace LCU.State.API.Forge.Infrastructure.Harness
 
             while (project == null || project.State == ProjectState.CreatePending)
             {
-                projects = await projClient.GetProjects(ProjectState.All);
+                var projects = await projClient.GetProjects(ProjectState.All);
 
-                project = projects.FirstOrDefault(p => p.Name == "LCU OS");
+                project = projects.FirstOrDefault(p => p.Name == name);
 
                 await Task.Delay(100);
             }
@@ -1485,6 +1474,21 @@ namespace LCU.State.API.Forge.Infrastructure.Harness
                 };
 
                 repo = await gitHubClient.Repository.Create(repoOrg, newRepo);
+            }
+
+            return repo;
+        }
+
+        protected virtual async Task<Octokit.Repository> getOrForkRepository(string originOrgName, string newOrgName, string repoName)
+        {
+            var repo = await tryGetRepository(newOrgName, repoName);
+
+            if (repo == null)
+            {
+                repo = await gitHubClient.Repository.Forks.Create(originOrgName, repoName, new Octokit.NewRepositoryFork()
+                {
+                    Organization = newOrgName
+                });
             }
 
             return repo;
@@ -2751,13 +2755,14 @@ namespace LCU.State.API.Forge.Infrastructure.Harness
                 return bd;
             }, blockCITrigger: true);
 
-            await startBuild(project, buildDef, new
-            {
-                AutoDevScript = String.Join(" & ", appSeed.Commands),
-                GitToken = gitHubToken,
-                RepoName = repoName,
-                RepoOrg = repoOrg
-            });
+            if (!appSeed.Commands.IsNullOrEmpty())
+                await startBuild(project, buildDef, new
+                {
+                    AutoDevScript = String.Join(" & ", appSeed.Commands),
+                    GitToken = gitHubToken,
+                    RepoName = repoName,
+                    RepoOrg = repoOrg
+                });
         }
 
         protected virtual void setAttributesNormal(DirectoryInfo directory)
@@ -2801,6 +2806,19 @@ namespace LCU.State.API.Forge.Infrastructure.Harness
             } while (!status);
 
             return status;
+        }
+
+        protected virtual async Task<Tuple<TeamProjectReference, string>> tryGetDevOpsProject()
+        {
+            var ent = await entGraph.LoadByPrimaryAPIKey(details.ApplicationEnterpriseAPIKey);
+
+            var name = $"LCU OS - {ent.Name}";
+
+            var projects = await projClient.GetProjects(ProjectState.All);
+
+            var project = projects.FirstOrDefault(p => p.Name == name);
+
+            return new Tuple<TeamProjectReference, string>(project, name);
         }
 
         protected virtual async Task<Octokit.Repository> tryGetRepository(string repoOrg, string repoName)
