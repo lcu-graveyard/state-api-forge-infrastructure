@@ -2625,6 +2625,75 @@ loadVssHttpClients();
             });
             #endregion
 
+            //  TODO:  Complete
+            #region Update Minor Version (.NET)
+            var upMrVerNet = new TaskGroupCreateParameter()
+            {
+                Author = "LowCodeUnit",
+                Category = "Deploy",
+                Name = "Low Code Unit - Update Minor Version (.Net)",
+                Description = "Update Minor Version (.Net)",
+                IconUrl = "/_static/tfs/M140_20181015.3/_content/icon-meta-task.png",
+                FriendlyName = "Low Code Unit - Update Minor Version (.Net)",
+                InstanceNameFormat = "Low Code Unit - Update Minor Version (.Net) | $(BuildConfiguration)"
+            };
+
+            upMrVerNet.RunsOn.Clear();
+
+            upMrVerNet.RunsOn.Add("Agent");
+
+            upMrVerNet.RunsOn.Add("DeploymentGroup");
+
+            upMrVerNet.Inputs.Add(new TaskInputDefinition()
+            {
+                Name = "BuildDefinitionId",
+                Label = "BuildDefinitionId",
+                DefaultValue = "$(system.definitionId)",
+                Required = true,
+                InputType = "string",
+                HelpMarkDown = "DevOps Build Definition Id"
+            });
+
+            upMrVerNet.Inputs.Add(new TaskInputDefinition()
+            {
+                Name = "RepoName",
+                Label = "RepoName",
+                DefaultValue = "",
+                Required = true,
+                InputType = "string",
+                HelpMarkDown = "The Repo Name to use."
+            });
+
+            upMrVerNet.Inputs.Add(new TaskInputDefinition()
+            {
+                Name = "RepoOrg",
+                Label = "RepoOrg",
+                DefaultValue = "",
+                Required = true,
+                InputType = "string",
+                HelpMarkDown = "The Repo Org to use."
+            });
+
+            upMrVerNet.Tasks.Add(new TaskGroupStep()
+            {
+                Condition = "succeeded()",
+                DisplayName = "git add .",
+                Enabled = true,
+                Inputs = new Dictionary<string, string>()
+                {
+                    { "failOnStderr", "false" },
+                    { "script", "git add ." },
+                    { "workingDirectory", "" }
+                },
+                Task = new Microsoft.TeamFoundation.DistributedTask.WebApi.TaskDefinitionReference()
+                {
+                    Id = new Guid("d9bafed4-0b18-4f58-968d-86655b4d2ce9"),
+                    VersionSpec = "2.*",
+                    DefinitionType = "task"
+                }
+            });
+            #endregion
+
             return new List<TaskGroupCreateParameter>()
             {
                 azFuncTask, nugRstr, netCoreBldTst, netCoreBldTstPkg, netCorePkgPush, npmBld, cpyPub, gitLbl, gitAddPush
