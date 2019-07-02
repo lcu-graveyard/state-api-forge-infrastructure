@@ -130,7 +130,7 @@ namespace LCU.State.API.Forge.Infrastructure.Harness
                     new VssOAuthHandler(devOpsToken)
                 });
 
-loadVssHttpClients();
+                loadVssHttpClients();
             }
 
             gitHubToken = idGraph.RetrieveThirdPartyAccessToken(details.EnterpriseAPIKey, details.Username, "GIT-HUB").Result;
@@ -602,7 +602,7 @@ loadVssHttpClients();
             if (projClient != null)
             {
                 var projData = await tryGetDevOpsProject();
-                
+
                 project = projData.Item1;
             }
 
@@ -752,6 +752,18 @@ loadVssHttpClients();
         public virtual async Task<ForgeInfrastructureState> SetupAppSeed(string seedLookup)
         {
             state.AppSeed.SelectedSeed = seedLookup;
+
+            return state;
+        }
+
+        public virtual async Task<ForgeInfrastructureState> SetupGitHubOAuth(string gitHubClientId, string gitHubClientSecret)
+        {
+            var status = await entGraph.SetThirdPartyData(details.EnterpriseAPIKey, "LCU-GIT-HUB-CLIENT-ID", gitHubClientId);
+
+            if (status)
+                status = await entGraph.SetThirdPartyData(details.EnterpriseAPIKey, "LCU-GIT-HUB-CLIENT-SECRET", gitHubClientSecret);
+
+            state.GitHub.OAuthConfigured = status;
 
             return state;
         }

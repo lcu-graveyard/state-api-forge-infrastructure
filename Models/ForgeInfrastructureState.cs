@@ -74,6 +74,9 @@ namespace LCU.State.API.Forge.Infrastructure.Models
     public class GitHubState
     {
         [DataMember]
+        public virtual bool OAuthConfigured { get; set; }
+
+        [DataMember]
         public virtual List<Octokit.Organization> Organizations { get; set; }
 
         [DataMember]
