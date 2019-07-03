@@ -17,6 +17,9 @@ namespace LCU.State.API.Forge.Infrastructure.Models
         public virtual DevOpsState DevOps { get; set; }
 
         [DataMember]
+        public virtual string EnterpriseName { get; set; }
+
+        [DataMember]
         public virtual Environment Environment { get; set; }
 
         [DataMember]
@@ -59,6 +62,9 @@ namespace LCU.State.API.Forge.Infrastructure.Models
 
         [DataMember]
         public virtual string NPMRegistry { get; set; }
+
+        [DataMember]
+        public virtual bool OAuthConfigured { get; set; }
 
         [DataMember]
         public virtual string ProjectName { get; set; }

@@ -490,17 +490,17 @@ namespace LCU.State.API.Forge.Infrastructure.Harness
         {
             if (devOpsConn != null)
             {
-                devOpsConn.Dispose();
+                devOpsConn?.Dispose();
 
-                bldClient.Dispose();
+                bldClient?.Dispose();
 
-                rlsClient.Dispose();
+                rlsClient?.Dispose();
 
-                projClient.Dispose();
+                projClient?.Dispose();
 
-                taskClient.Dispose();
+                taskClient?.Dispose();
 
-                seClient.Dispose();
+                seClient?.Dispose();
             }
         }
 
@@ -529,11 +529,21 @@ namespace LCU.State.API.Forge.Infrastructure.Harness
             return await WhenAll(
                 HasDevOps(),
                 GetEnvironments(),
+                GetEnterprise(),
                 HasInfrastructure(),
                 HasSourceControl(),
                 ListGitHubOrganizations(),
                 ListGitHubOrgRepos()
             );
+        }
+
+        public virtual async Task<ForgeInfrastructureState> GetEnterprise()
+        {
+            var ent = await entGraph.LoadByPrimaryAPIKey(details.EnterpriseAPIKey);
+
+            state.EnterpriseName = ent?.Name;
+
+            return state;
         }
 
         public virtual async Task<ForgeInfrastructureState> GetEnvironments()
@@ -752,6 +762,21 @@ namespace LCU.State.API.Forge.Infrastructure.Harness
         public virtual async Task<ForgeInfrastructureState> SetupAppSeed(string seedLookup)
         {
             state.AppSeed.SelectedSeed = seedLookup;
+
+            return state;
+        }
+
+        public virtual async Task<ForgeInfrastructureState> SetupDevOpsOAuth(string devOpsAppId, string devOpsClientSecret, string devOpsScopes)
+        {
+            var status = await entGraph.SetThirdPartyData(details.EnterpriseAPIKey, "LCU-DEV-OPS-APP-ID", devOpsAppId);
+
+            if (status)
+                status = await entGraph.SetThirdPartyData(details.EnterpriseAPIKey, "LCU-DEV-OPS-APP-CLIENT-SECRET", devOpsClientSecret);
+
+            if (status)
+                status = await entGraph.SetThirdPartyData(details.EnterpriseAPIKey, "LCU-DEV-OPS-APP-SCOPES", devOpsScopes);
+
+            state.DevOps.OAuthConfigured = status;
 
             return state;
         }
@@ -2729,6 +2754,8 @@ namespace LCU.State.API.Forge.Infrastructure.Harness
         {
             try
             {
+                state.DevOps.Unauthorized = null;
+
                 var tasks = new Task[] {
                     Task.Run(() => bldClient = devOpsConn.GetClient<BuildHttpClient>()),
                     Task.Run(() => rlsClient = devOpsConn.GetClient<ReleaseHttpClient>()),
@@ -2740,12 +2767,11 @@ namespace LCU.State.API.Forge.Infrastructure.Harness
                 };
 
                 Task.WhenAll(tasks).Wait();
-
-                state.DevOps.Unauthorized = null;
             }
-            catch (VssUnauthorizedException vuex)
+            catch (AggregateException aex)
             {
-                state.DevOps.Unauthorized = "/.devops/refresh";
+                if (aex.InnerExceptions.Any(ie => ie is VssUnauthorizedException))
+                    state.DevOps.Unauthorized = "/.devops/refresh";
             }
         }
         protected virtual void removeRepo(DirectoryInfo directory)
