@@ -2754,6 +2754,9 @@ namespace LCU.State.API.Forge.Infrastructure.Harness
         {
             try
             {
+                if (state.DevOps == null)
+                    state.DevOps = new DevOpsState();
+
                 state.DevOps.Unauthorized = null;
 
                 var tasks = new Task[] {
