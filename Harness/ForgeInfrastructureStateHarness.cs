@@ -2949,7 +2949,7 @@ namespace LCU.State.API.Forge.Infrastructure.Harness
 
             state.DevOps.ProjectName = $"LCU OS - {ent.Name}";
 
-            log.LogInformation($"Looking up project by name")
+            log.LogInformation($"Looking up project by name {ent.Name}");
 
             var projects = await projClient.GetProjects(ProjectState.All);
 
