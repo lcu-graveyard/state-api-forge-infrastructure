@@ -2945,9 +2945,11 @@ namespace LCU.State.API.Forge.Infrastructure.Harness
 
         protected virtual async Task<Tuple<TeamProjectReference, string>> tryGetDevOpsProject()
         {
-            var ent = await entGraph.LoadByPrimaryAPIKey(details.ApplicationEnterpriseAPIKey);
+            var ent = await entGraph.LoadByPrimaryAPIKey(details.EnterpriseAPIKey);
 
             state.DevOps.ProjectName = $"LCU OS - {ent.Name}";
+
+            log.LogInformation($"Looking up project by name")
 
             var projects = await projClient.GetProjects(ProjectState.All);
 
