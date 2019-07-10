@@ -584,13 +584,16 @@ namespace LCU.State.API.Forge.Infrastructure.Harness
 
                 var repoDir = new DirectoryInfo(repoPath);
 
+                if (repoDir.Exists)
+                    repoDir.Delete(true));
+
                 await ensureRepo(repoDir, repo.CloneUrl);
 
                 var envPath = Path.Combine(repoDir.FullName, "environments", state.Environment.Lookup);
 
                 var tmplPath = Path.Combine(envPath, "template.json");
 
-                state.ProductionConfigured = Directory.Exists(envPath);
+                state.ProductionConfigured = File.Exists(tmplPath);
             }
 
             return state;
