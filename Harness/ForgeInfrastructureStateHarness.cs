@@ -278,6 +278,8 @@ namespace LCU.State.API.Forge.Infrastructure.Harness
 
         public virtual async Task<ForgeInfrastructureState> ConfigureDevOps(string npmRegistry, string npmAccessToken)
         {
+            log.LogInformation("Configuring Dev Ops");
+
             var repoName = state.EnvSettings?.Metadata?["GitHubRepository"]?.ToString();
 
             var repoOrg = state.EnvSettings?.Metadata?["GitHubOrganization"]?.ToString();
@@ -888,6 +890,8 @@ namespace LCU.State.API.Forge.Infrastructure.Harness
             string repoOrg, string repoName, string gitHubCSId, string nameSuffix, Func<BuildDefinition, BuildDefinition> completeBuildDef = null, string defaultBranch = "master",
             bool blockCITrigger = false)
         {
+            log.LogInformation("Creating build definition");
+            
             var name = $"{repoOrg} {repoName}";
 
             if (!nameSuffix.IsNullOrEmpty())
@@ -1266,6 +1270,8 @@ namespace LCU.State.API.Forge.Infrastructure.Harness
 
         protected virtual async Task<List<TaskGroup>> ensureDevOpsTaskLibrary(string projectId, IDictionary<string, string> endpoints)
         {
+            log.LogInformation("Ensuring task library");
+            
             var taskGroups = new List<TaskGroup>();
 
             taskGroups = await taskClient.GetTaskGroupsAsync(projectId, expanded: true);
@@ -1289,6 +1295,8 @@ namespace LCU.State.API.Forge.Infrastructure.Harness
 
         protected virtual async Task<IDictionary<string, string>> ensureDevOpsServiceEndpoints(string projectId, string azureSubId, string azureSubName)
         {
+            log.LogInformation("Ensuring service endpoints");
+            
             var endpoints = new Dictionary<string, string>();
 
             var ses = await seClient.GetServiceEndpointsAsync(projectId);
@@ -2777,6 +2785,7 @@ namespace LCU.State.API.Forge.Infrastructure.Harness
                     state.DevOps.Unauthorized = "/.devops/refresh";
             }
         }
+
         protected virtual void removeRepo(DirectoryInfo directory)
         {
             if (directory.Exists)
