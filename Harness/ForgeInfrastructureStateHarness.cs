@@ -584,9 +584,6 @@ namespace LCU.State.API.Forge.Infrastructure.Harness
 
                 var repoDir = new DirectoryInfo(repoPath);
 
-                if (repoDir.Exists)
-                    repoDir.Delete(true);
-
                 await ensureRepo(repoDir, repo.CloneUrl);
 
                 var envPath = Path.Combine(repoDir.FullName, "environments", state.Environment.Lookup);
