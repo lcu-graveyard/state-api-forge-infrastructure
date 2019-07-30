@@ -216,7 +216,7 @@ namespace LCU.State.API.Forge.Infrastructure.Harness
 
                 var apps = await appGraph.ListApplications(details.EnterpriseAPIKey);
 
-                var appSeedApp = apps.FirstOrDefault(app => app.PathRegex == $"/{repoOrg}/{state.AppSeed.NewName}*");
+                var appSeedApp = apps?.FirstOrDefault(app => app.PathRegex == $"/{repoOrg}/{state.AppSeed.NewName}*");
 
                 if (appSeedApp != null)
                 {
@@ -2946,7 +2946,7 @@ namespace LCU.State.API.Forge.Infrastructure.Harness
 
             state.DevOps.ProjectName = $"LCU OS - {ent.Name}";
 
-            log.LogInformation($"Looking up project by name {ent.Name}");
+            log.LogInformation($"Looking up project by name {state.DevOps.ProjectName}");
 
             var projects = await projClient.GetProjects(ProjectState.All);
 
