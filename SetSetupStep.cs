@@ -10,6 +10,7 @@ using Newtonsoft.Json;
 using System.Runtime.Serialization;
 using LCU.State.API.Forge.Infrastructure.Models;
 using LCU.State.API.Forge.Infrastructure.Harness;
+using LCU.Presentation.Personas.Applications;
 
 namespace LCU.State.API.Forge.Infrastructure
 {

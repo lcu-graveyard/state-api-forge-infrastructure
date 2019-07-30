@@ -5,16 +5,16 @@
     <RootNamespace>state_api_forge_infrastructure</RootNamespace>
   </PropertyGroup>
   <ItemGroup>
-    <PackageReference Include="LCU.Runtime" Version="1.0.19170.8-prerelease" />
+    <PackageReference Include="LCU.Runtime" Version="1.15.19211.6" />
     <PackageReference Include="LibGit2Sharp" Version="0.26.0" />
     <PackageReference Include="Microsoft.Azure.Management.Fluent" Version="1.22.2" />
     <PackageReference Include="Microsoft.Azure.Management.ResourceManager.Fluent" Version="1.22.2" />
     <PackageReference Include="Microsoft.NET.Sdk.Functions" Version="1.0.27" />
-    <PackageReference Include="Microsoft.TeamFoundation.DistributedTask.WebApi" Version="16.143.1" />
-    <PackageReference Include="Microsoft.TeamFoundationServer.Client" Version="16.143.1" />
-    <PackageReference Include="Microsoft.VisualStudio.Services.Client" Version="16.143.1" />
-    <PackageReference Include="Microsoft.VisualStudio.Services.Release.Client" Version="16.143.1" />
-    <PackageReference Include="Microsoft.VisualStudio.Services.ServiceEndpoints.WebApi" Version="16.143.1" />
+    <PackageReference Include="Microsoft.TeamFoundation.DistributedTask.WebApi" Version="16.143.2" />
+    <PackageReference Include="Microsoft.TeamFoundationServer.Client" Version="16.143.2" />
+    <PackageReference Include="Microsoft.VisualStudio.Services.Client" Version="16.143.2" />
+    <PackageReference Include="Microsoft.VisualStudio.Services.Release.Client" Version="16.143.2" />
+    <PackageReference Include="Microsoft.VisualStudio.Services.ServiceEndpoints.WebApi" Version="16.143.2" />
     <PackageReference Include="Newtonsoft.Json" Version="12.0.2" />
     <PackageReference Include="Octokit" Version="0.32.0" />
     <PackageReference Include="Octokit.Caching" Version="1.0.6" />
