@@ -23,6 +23,7 @@ using Microsoft.TeamFoundation.DistributedTask.WebApi;
 using Fathym.Design;
 using LCU.Presentation.Personas.Applications;
 using LCU.Presentation.Personas.DevOps;
+using LCU.Presentation.Personas.Security;
 
 namespace LCU.State.API.Forge.Infrastructure.Harness
 {
@@ -42,12 +43,13 @@ namespace LCU.State.API.Forge.Infrastructure.Harness
             return respStr?.FromJSON<T>();
         }
 
-        public override async Task<BaseResponse<List<LCU.Graphs.Registry.Enterprises.Provisioning.Environment>>> ListEnvironments(string entApiKey)
+        public new virtual async Task<BaseResponse<List<MetadataModel>>> ListGitHubOrganizations(string entApiKey, string username)
         {
-            var response = await Get<BaseResponse<List<LCU.Graphs.Registry.Enterprises.Provisioning.Environment>>>($"environments/{entApiKey}/by-api-key");
+            var response = await Get<BaseResponse<List<MetadataModel>>>($"source-control/{entApiKey}/git-hub-orgs?username={username}");
 
             return response;
         }
+
         #endregion
     }
 
@@ -57,6 +59,8 @@ namespace LCU.State.API.Forge.Infrastructure.Harness
         protected readonly DevOpsArchitectClient devOpsArch;
 
         protected readonly EnterpriseManagerClient entMgr;
+
+        protected readonly SecurityManagerClient secMgr;
         #endregion
 
         #region Properties
@@ -70,6 +74,8 @@ namespace LCU.State.API.Forge.Infrastructure.Harness
             devOpsArch = req.ResolveClient<DevOpsArchitectClient>();
 
             entMgr = req.ResolveClient<EnterpriseManagerClient>();
+
+            secMgr = req.ResolveClient<SecurityManagerClient>();
         }
         #endregion
 
@@ -97,12 +103,15 @@ namespace LCU.State.API.Forge.Infrastructure.Harness
             return state;
         }
 
-        public virtual async Task<ForgeInfrastructureState> CommitInfrastructure()
+        public virtual async Task<ForgeInfrastructureState> CommitInfrastructure(string selectedTemplate)
         {
+            if (state.InfraTemplate.SelectedTemplate.IsNullOrEmpty())
+                state.InfraTemplate.SelectedTemplate = selectedTemplate;
+
             var committed = await devOpsArch.CommitInfrastructure(new Presentation.Personas.DevOps.CommitInfrastructureRequest()
             {
                 EnvironmentLookup = state.Environment.Lookup,
-                SelectedTemplate = state.InfraTemplate.SelectedTemplate
+                SelectedTemplate = state.InfraTemplate.SelectedTemplate,
             }, details.EnterpriseAPIKey, state.Environment.Lookup, details.Username);
 
             return state;
@@ -125,13 +134,15 @@ namespace LCU.State.API.Forge.Infrastructure.Harness
 
         public virtual async Task<ForgeInfrastructureState> ConfigureInfrastructure(string infraType, bool useDefaultSettings, MetadataModel settings)
         {
+            var envLookup = $"{state.GitHub.SelectedOrg}-prd";
+
             var configured = await devOpsArch.ConfigureInfrastructure(new Presentation.Personas.DevOps.ConfigureInfrastructureRequest()
             {
                 EnvSettings = settings,
                 OrganizationLookup = state.GitHub.SelectedOrg,
                 InfraType = infraType,
                 UseDefaultSettings = useDefaultSettings
-            }, details.EnterpriseAPIKey, state.Environment.Lookup, details.Username);
+            }, details.EnterpriseAPIKey, envLookup, details.Username);
 
             if (configured.Status)
             {
@@ -179,8 +190,11 @@ namespace LCU.State.API.Forge.Infrastructure.Harness
             if (state.DevOps == null || !state.DevOps.Configured)
                 state.DevOps = new DevOpsState();
 
-            if (state.DevOps.NPMRegistry.IsNullOrEmpty())
-                state.DevOps.NPMRegistry = "https://registry.npmjs.org/";
+            var tpd = await secMgr.RetrieveIdentityThirdPartyData(details.EnterpriseAPIKey, details.Username, "NPM-RC-TOKEN", "NPM-RC-REGISTRY");
+
+            state.DevOps.NPMRegistry = tpd.Model["NPM-RC-REGISTRY"] ?? "https://registry.npmjs.org/";
+
+            state.DevOps.NPMAccessToken = tpd.Model["NPM-RC-TOKEN"];
 
             var hasSourceControl = await entMgr.HasSourceControlOAuth(details.EnterpriseAPIKey, details.Username);
 

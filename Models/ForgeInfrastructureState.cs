@@ -84,7 +84,7 @@ namespace LCU.State.API.Forge.Infrastructure.Models
         public virtual bool OAuthConfigured { get; set; }
 
         [DataMember]
-        public virtual List<Octokit.Organization> Organizations { get; set; }
+        public virtual List<MetadataModel> Organizations { get; set; }
 
         [DataMember]
         public virtual List<Octokit.Repository> OrgRepos { get; set; }
