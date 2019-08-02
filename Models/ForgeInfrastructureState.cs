@@ -87,7 +87,7 @@ namespace LCU.State.API.Forge.Infrastructure.Models
         public virtual List<MetadataModel> Organizations { get; set; }
 
         [DataMember]
-        public virtual List<Octokit.Repository> OrgRepos { get; set; }
+        public virtual List<MetadataModel> OrgRepos { get; set; }
 
         [DataMember]
         public virtual string SelectedOrg { get; set; }

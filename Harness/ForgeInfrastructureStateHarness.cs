@@ -24,35 +24,10 @@ using Fathym.Design;
 using LCU.Presentation.Personas.Applications;
 using LCU.Presentation.Personas.DevOps;
 using LCU.Presentation.Personas.Security;
+using LCU.Presentation.Personas.Enterprises;
 
 namespace LCU.State.API.Forge.Infrastructure.Harness
 {
-    public class EnterpriseManagerClient : LCU.Presentation.Personas.Enterprises.EnterpriseManagerClient
-    {
-        #region Constructors
-        public EnterpriseManagerClient(string apiRoot)
-            : base(apiRoot)
-        { }
-        #endregion
-
-        #region API Methods
-        public override async Task<T> Get<T>(string requestUri)
-        {
-            var respStr = await web.GetStringAsync(requestUri);
-
-            return respStr?.FromJSON<T>();
-        }
-
-        public new virtual async Task<BaseResponse<List<MetadataModel>>> ListGitHubOrganizations(string entApiKey, string username)
-        {
-            var response = await Get<BaseResponse<List<MetadataModel>>>($"source-control/{entApiKey}/git-hub-orgs?username={username}");
-
-            return response;
-        }
-
-        #endregion
-    }
-
     public class ForgeInfrastructureStateHarness : LCUStateHarness<ForgeInfrastructureState>
     {
         #region Fields
@@ -90,15 +65,18 @@ namespace LCU.State.API.Forge.Infrastructure.Harness
                 RepoName = state.AppSeed.NewName
             }, details.EnterpriseAPIKey, state.Environment.Lookup, details.Host, details.Username);
 
-            state.AppSeed.InfraBuilt = completed.Model.InfraBuilt;
+            if (completed != null)
+            {
+                state.AppSeed.InfraBuilt = completed.Model.InfraBuilt;
 
-            state.AppSeed.AppSeeded = completed.Model.AppSeeded;
+                state.AppSeed.AppSeeded = completed.Model.AppSeeded;
 
-            state.AppSeed.HasBuild = completed.Model.HasBuild;
+                state.AppSeed.HasBuild = completed.Model.HasBuild;
 
-            state.AppSeed.AppSeedBuilt = completed.Model.AppSeedBuilt;
+                state.AppSeed.AppSeedBuilt = completed.Model.AppSeedBuilt;
 
-            state.AppSeed.Step = completed.Model.AppSeedLCU ? ForgeInfrastructureApplicationSeedStepTypes.Created : state.AppSeed.Step;
+                state.AppSeed.Step = completed.Model.AppSeedLCU ? ForgeInfrastructureApplicationSeedStepTypes.Created : state.AppSeed.Step;
+            }
 
             return state;
         }
@@ -260,7 +238,7 @@ namespace LCU.State.API.Forge.Infrastructure.Harness
             {
                 var isDevOpsSetup = await entMgr.IsDevOpsSetup(details.EnterpriseAPIKey, state.Environment.Lookup, details.Username);
 
-                state.DevOps.Setup = isDevOpsSetup.Status;
+                state.DevOps.Setup = isDevOpsSetup?.Status;
             }
 
             return state;
