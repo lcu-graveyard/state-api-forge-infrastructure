@@ -43,14 +43,14 @@ namespace LCU.State.API.Forge.Infrastructure.Harness
         #endregion
 
         #region Constructors
-        public ForgeInfrastructureStateHarness(HttpRequest req, ILoggerFactory loggerFactory, ForgeInfrastructureState state)
-            : base(req, loggerFactory, state)
+        public ForgeInfrastructureStateHarness(HttpRequest req, ILogger logger, ForgeInfrastructureState state)
+            : base(req, logger, state)
         {
-            devOpsArch = req.ResolveClient<DevOpsArchitectClient>(loggerFactory);
+            devOpsArch = req.ResolveClient<DevOpsArchitectClient>(logger);
 
-            entMgr = req.ResolveClient<EnterpriseManagerClient>(loggerFactory);
+            entMgr = req.ResolveClient<EnterpriseManagerClient>(logger);
 
-            secMgr = req.ResolveClient<SecurityManagerClient>(loggerFactory);
+            secMgr = req.ResolveClient<SecurityManagerClient>(logger);
         }
         #endregion
 
