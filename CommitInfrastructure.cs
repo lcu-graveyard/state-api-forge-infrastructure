@@ -17,6 +17,8 @@ namespace LCU.State.API.Forge.Infrastructure
     [DataContract]
     public class CommitInfrastructureRequest
     {
+        [DataMember]
+        public virtual string Template { get; set; }
     }
 
     public static class CommitInfrastructure
@@ -28,14 +30,14 @@ namespace LCU.State.API.Forge.Infrastructure
         {
             return await req.Manage<CommitInfrastructureRequest, ForgeInfrastructureState, ForgeInfrastructureStateHarness>(log, async (mgr, reqData) =>
             {
-                await mgr.CommitInfrastructure($"{context.FunctionAppDirectory}\\..");
+                await mgr.CommitInfrastructure(reqData.Template);
 
                 await mgr.Ensure();
 
-                await mgr.HasProdConfig($"{context.FunctionAppDirectory}\\..");
+                await mgr.HasProdConfig();
 
                 return await mgr.WhenAll(
-                    mgr.LoadInfrastructureRepository($"{context.FunctionAppDirectory}\\..")
+                    mgr.LoadInfrastructureRepository()
                 );
             });
         }
