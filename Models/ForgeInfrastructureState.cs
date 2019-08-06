@@ -41,6 +41,9 @@ namespace LCU.State.API.Forge.Infrastructure.Models
         public virtual bool Loading { get; set; }
 
         [DataMember]
+        public virtual string LoadingMessage { get; set; }
+
+        [DataMember]
         public virtual bool ProductionConfigured { get; set; }
 
         [DataMember]
