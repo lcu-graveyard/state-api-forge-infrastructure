@@ -119,8 +119,8 @@ namespace LCU.State.API.Forge.Infrastructure.Harness
         public virtual async Task<ForgeInfrastructureState> ConfigureInfrastructure(string infraType, bool useDefaultSettings, MetadataModel settings)
         {
             state.LoadingMessage = "Configuring Infrastructure";
-            var envLookup = $"{state.GitHub.SelectedOrg}-prd";
 
+            var envLookup = $"{state.GitHub.SelectedOrg}-prd";
 
             var configured = await devOpsArch.ConfigureInfrastructure(new Presentation.Personas.DevOps.ConfigureInfrastructureRequest()
             {
@@ -146,7 +146,7 @@ namespace LCU.State.API.Forge.Infrastructure.Harness
 
         public virtual async Task<ForgeInfrastructureState> CreateAppFromSeed(string filesRoot, string name)
         {
-            state.LoadingMessage = "Completing Application Seed";
+            state.LoadingMessage = "Completing Application From Seed";
 
             var appSeed = state.AppSeed.Options.FirstOrDefault(o => o.Lookup == state.AppSeed.SelectedSeed);
 
@@ -207,8 +207,8 @@ namespace LCU.State.API.Forge.Infrastructure.Harness
         public virtual async Task<ForgeInfrastructureState> GetEnterprise()
         {
             state.LoadingMessage = "Retrieving Enterprise Record";
-            var ent = await entMgr.GetEnterprise(details.EnterpriseAPIKey);
 
+            var ent = await entMgr.GetEnterprise(details.EnterpriseAPIKey);
 
             state.EnterpriseName = ent.Model?.Name;
 
@@ -218,8 +218,8 @@ namespace LCU.State.API.Forge.Infrastructure.Harness
         public virtual async Task<ForgeInfrastructureState> GetEnvironments()
         {
             state.LoadingMessage = "Retrieving Environments";
-            var envs = await entMgr.ListEnvironments(details.EnterpriseAPIKey);
 
+            var envs = await entMgr.ListEnvironments(details.EnterpriseAPIKey);
 
             if (!envs.Model.IsNullOrEmpty())
             {
@@ -239,11 +239,10 @@ namespace LCU.State.API.Forge.Infrastructure.Harness
             return state;
         }
 
-            state.LoadingMessage = "Checking For Production Configuration";
-
         public virtual async Task<ForgeInfrastructureState> HasDevOps()
         {
             state.LoadingMessage = "Checking For Dev Ops";
+
             var hasDevOps = await entMgr.HasDevOpsOAuth(details.EnterpriseAPIKey, details.Username);
 
             state.DevOps.Configured = hasDevOps.Status;
@@ -254,8 +253,8 @@ namespace LCU.State.API.Forge.Infrastructure.Harness
         public virtual async Task<ForgeInfrastructureState> HasDevOpsSetup()
         {
             state.LoadingMessage = "Ensuring Dev Ops Setup";
-            if (state.Environment != null)
 
+            if (state.Environment != null)
             {
                 var isDevOpsSetup = await entMgr.IsDevOpsSetup(details.EnterpriseAPIKey, state.Environment.Lookup, details.Username);
 
@@ -268,8 +267,8 @@ namespace LCU.State.API.Forge.Infrastructure.Harness
         public virtual async Task<ForgeInfrastructureState> HasInfrastructure()
         {
             state.LoadingMessage = "Checking For Infrastructure";
-            var envs = await entMgr.ListEnvironments(details.EnterpriseAPIKey);
 
+            var envs = await entMgr.ListEnvironments(details.EnterpriseAPIKey);
 
             state.InfrastructureConfigured = !envs.Model.IsNullOrEmpty() && envs.Model.Any(env =>
             {
@@ -281,11 +280,9 @@ namespace LCU.State.API.Forge.Infrastructure.Harness
 
         public virtual async Task<ForgeInfrastructureState> HasProdConfig()
         {
-            state.LoadingMessage = "Checking For Source Control";
+            state.LoadingMessage = "Checking For Production Configuration";
+
             if (state.Environment != null)
-
-            state.LoadingMessage = "Retrieving GitHub Organizations";
-
             {
                 var hasProdEnv = await entMgr.HasProductionEnvironment(details.EnterpriseAPIKey, state.Environment?.Lookup, details.Username);
 
@@ -299,9 +296,9 @@ namespace LCU.State.API.Forge.Infrastructure.Harness
 
         public virtual async Task<ForgeInfrastructureState> HasSourceControl()
         {
-            state.LoadingMessage = "Retrieving GitHub Repositories";
-            var hasSC = await entMgr.HasSourceControlOAuth(details.EnterpriseAPIKey, details.Username);
+            state.LoadingMessage = "Checking For Source Control";
 
+            var hasSC = await entMgr.HasSourceControlOAuth(details.EnterpriseAPIKey, details.Username);
 
             state.SourceControlConfigured = hasSC.Status;
 
@@ -310,9 +307,9 @@ namespace LCU.State.API.Forge.Infrastructure.Harness
 
         public virtual async Task<ForgeInfrastructureState> ListGitHubOrganizations()
         {
-            state.LoadingMessage = "Loading Infrastructure Repository";
-            var gitHubOrgs = await entMgr.ListGitHubOrganizations(details.EnterpriseAPIKey, details.Username);
+            state.LoadingMessage = "Retrieving GitHub Organizations";
 
+            var gitHubOrgs = await entMgr.ListGitHubOrganizations(details.EnterpriseAPIKey, details.Username);
 
             state.GitHub.Organizations = gitHubOrgs.Model;
 
@@ -321,6 +318,8 @@ namespace LCU.State.API.Forge.Infrastructure.Harness
 
         public virtual async Task<ForgeInfrastructureState> ListGitHubOrgRepos()
         {
+            state.LoadingMessage = "Retrieving GitHub Organization Repositories";
+
             if (!state.GitHub.SelectedOrg.IsNullOrEmpty())
             {
                 var gitHubOrgRepos = await entMgr.ListGitHubOrganizationRepos(details.EnterpriseAPIKey, state.GitHub.SelectedOrg, details.Username);
@@ -333,6 +332,8 @@ namespace LCU.State.API.Forge.Infrastructure.Harness
 
         public virtual async Task<ForgeInfrastructureState> LoadInfrastructureRepository()
         {
+            state.LoadingMessage = "Loading Infrastructure Repository";
+
             if (state.Environment != null)
             {
                 var infaConfig = await entMgr.LoadInfrastructureConfig(details.EnterpriseAPIKey, state.Environment?.Lookup, details.Username);
@@ -356,7 +357,7 @@ namespace LCU.State.API.Forge.Infrastructure.Harness
 
         public virtual async Task<ForgeInfrastructureState> SetSelectedOrg(string org)
         {
-            state.LoadingMessage = "Creating Seed Applications";
+            state.LoadingMessage = "Setting Selected Organization";
 
             state.GitHub.SelectedOrg = org;
 
@@ -384,11 +385,9 @@ namespace LCU.State.API.Forge.Infrastructure.Harness
         public virtual async Task<ForgeInfrastructureState> SetupDevOpsOAuth(string devOpsAppId, string devOpsClientSecret, string devOpsScopes)
         {
             state.LoadingMessage = "Setting Up Dev Ops OAuth";
+            
             var devOpsOAuth = await entMgr.SetupDevOpsOAuthConnection(new Presentation.Personas.Enterprises.SetupDevOpsOAuthConnectionRequest()
-
             {
-            state.LoadingMessage = "Setting Up GitHub OAuth";
-
                 DevOpsAppID = devOpsAppId,
                 DevOpsClientSecret = devOpsClientSecret,
                 DevOpsScopes = devOpsScopes
@@ -401,6 +400,8 @@ namespace LCU.State.API.Forge.Infrastructure.Harness
 
         public virtual async Task<ForgeInfrastructureState> SetupGitHubOAuth(string gitHubClientId, string gitHubClientSecret)
         {
+            state.LoadingMessage = "Setting Up GitHub OAuth";
+
             var gitHubOAuth = await entMgr.SetupGitHubOAuthConnection(new Presentation.Personas.Enterprises.SetupGitHubOAuthConnectionRequest()
             {
                 GitHubClientID = gitHubClientId,
