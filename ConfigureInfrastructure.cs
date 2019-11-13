@@ -37,6 +37,8 @@ namespace LCU.State.API.Forge.Infrastructure
         {
             return await req.Manage<ConfigureInfrastructureRequest, ForgeInfrastructureState, ForgeInfrastructureStateHarness>(log, async (mgr, reqData) =>
             {
+                log.LogInformation($"Configuring Infrastructure: {reqData.InfrastructureType}");
+
                 await mgr.ConfigureInfrastructure(reqData.InfrastructureType, reqData.UseDefaultSettings, reqData.Settings);
 
                 await mgr.Ensure();

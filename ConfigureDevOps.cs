@@ -34,6 +34,8 @@ namespace LCU.State.API.Forge.Infrastructure
         {
             return await req.Manage<ConfigureDevOpsRequest, ForgeInfrastructureState, ForgeInfrastructureStateHarness>(log, async (mgr, reqData) =>
             {
+                log.LogInformation($"Configuring DevOps: {reqData.NPMRegistry}");
+
                 await mgr.ConfigureDevOps(reqData.NPMRegistry, reqData.NPMAccessToken);
 
                 return await mgr.WhenAll(

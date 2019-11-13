@@ -31,6 +31,8 @@ namespace LCU.State.API.Forge.Infrastructure
         {
             return await req.Manage<SetSetupStepRequest, ForgeInfrastructureState, ForgeInfrastructureStateHarness>(log, async (mgr, reqData) =>
             {
+                log.LogInformation($"Setting Setup Step: {reqData.Step}");
+
                 await mgr.SetSetupStep(reqData.Step);
 
                 return await mgr.WhenAll(

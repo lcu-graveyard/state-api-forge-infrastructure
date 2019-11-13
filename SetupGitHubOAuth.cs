@@ -33,6 +33,8 @@ namespace LCU.State.API.Forge.Infrastructure
         {
             return await req.Manage<SetupGitHubOAuthRequest, ForgeInfrastructureState, ForgeInfrastructureStateHarness>(log, async (mgr, reqData) =>
             {
+                log.LogInformation($"Setting GitHub OAuth: {reqData.ClientID}");
+
                 await mgr.SetupGitHubOAuth(reqData.ClientID, reqData.ClientSecret);
 
                 return await mgr.WhenAll(

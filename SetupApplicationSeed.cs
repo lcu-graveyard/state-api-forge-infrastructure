@@ -30,6 +30,8 @@ namespace LCU.State.API.Forge.Infrastructure
         {
             return await req.Manage<SetupApplicationSeedRequest, ForgeInfrastructureState, ForgeInfrastructureStateHarness>(log, async (mgr, reqData) =>
             {
+                log.LogInformation($"Setting up Application Seed: {reqData.Seed}");
+
                 await mgr.SetupAppSeed(reqData.Seed);
 
                 return await mgr.WhenAll(

@@ -30,6 +30,8 @@ namespace LCU.State.API.Forge.Infrastructure
         {
             return await req.Manage<CreateAppFromSeedRequest, ForgeInfrastructureState, ForgeInfrastructureStateHarness>(log, async (mgr, reqData) =>
             {
+                log.LogInformation($"Creating App from Seed: {context.FunctionAppDirectory}\\..  {reqData.Name}");
+
                 await mgr.CreateAppFromSeed($"{context.FunctionAppDirectory}\\..", reqData.Name);
 
                 return await mgr.WhenAll(

@@ -36,6 +36,8 @@ namespace LCU.State.API.Forge.Infrastructure
         {
             return await req.Manage<SetupDevOpsOAuthRequest, ForgeInfrastructureState, ForgeInfrastructureStateHarness>(log, async (mgr, reqData) =>
             {
+                log.LogInformation($"Setting DevOps Auth: {reqData.AppID}");
+
                 await mgr.SetupDevOpsOAuth(reqData.AppID, reqData.ClientSecret, reqData.Scopes);
 
                 return await mgr.WhenAll(

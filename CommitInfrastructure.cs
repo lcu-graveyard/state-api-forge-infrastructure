@@ -30,6 +30,8 @@ namespace LCU.State.API.Forge.Infrastructure
         {
             return await req.Manage<CommitInfrastructureRequest, ForgeInfrastructureState, ForgeInfrastructureStateHarness>(log, async (mgr, reqData) =>
             {
+                log.LogInformation($"Committing Infrastructure: {reqData.Template}");
+
                 await mgr.CommitInfrastructure(reqData.Template);
 
                 await mgr.Ensure();

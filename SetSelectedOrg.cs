@@ -30,6 +30,8 @@ namespace LCU.State.API.Forge.Infrastructure
         {
             return await req.Manage<SetSelectedOrgRequest, ForgeInfrastructureState, ForgeInfrastructureStateHarness>(log, async (mgr, reqData) =>
             {
+                log.LogInformation($"Setting Selected Organization: {reqData.Organization}");
+
                 await mgr.SetSelectedOrg(reqData.Organization);
 
                 return await mgr.WhenAll(

@@ -30,6 +30,8 @@ namespace LCU.State.API.Forge.Infrastructure
         {
             return await req.Manage<SetSelectedInfrastructureTemplateRequest, ForgeInfrastructureState, ForgeInfrastructureStateHarness>(log, async (mgr, reqData) =>
             {
+                log.LogInformation($"Setting Selected Infrastructure Template: {reqData.Template}");
+
                 await mgr.SetSelectedInfrastructureTemplate(reqData.Template);
 
                 return await mgr.WhenAll(

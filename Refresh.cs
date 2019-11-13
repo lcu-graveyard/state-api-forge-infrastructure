@@ -21,6 +21,8 @@ namespace LCU.State.API.Forge.Infrastructure
         {
             return await req.Manage<dynamic, ForgeInfrastructureState, ForgeInfrastructureStateHarness>(log, async (mgr, reqData) =>
             {
+                log.LogInformation($"Refresh");
+
                 await mgr.Ensure();
 
                 await mgr.HasProdConfig();
